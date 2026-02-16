@@ -578,6 +578,28 @@ fn format_size(size: u64) -> String {
     }
 }
 
+/// Extract extension from asset name, removing version numbers
+/// e.g., "v0.1.0.tar.gz" -> "tar.gz", "grab-linux-x86_64" -> "grab-linux-x86_64"
+/// "package-1.0.0.zip" -> "zip", "app-v2.0.0.AppImage" -> "AppImage"
+fn extract_extension(name: &str) -> String {
+    // Common double extensions
+    let double_extensions = [".tar.gz", ".tar.bz2", ".tar.xz"];
+
+    for ext in double_extensions {
+        if name.ends_with(ext) {
+            return ext[1..].to_string(); // Remove leading dot
+        }
+    }
+
+    // Single extension
+    if let Some(pos) = name.rfind('.') {
+        name[pos + 1..].to_string()
+    } else {
+        // No extension, use the whole name
+        name.to_string()
+    }
+}
+
 pub fn format_releases_html(
     releases: &[Release],
     repo_path: &str,
@@ -623,7 +645,10 @@ pub fn format_releases_html(
                     } else {
                         "📎"
                     };
-                    let latest_url = format!("/repo/{}/{}/latest", repo_path, a.name);
+                    // Extract extension(s) from asset name for consistent latest URL
+                    // e.g., "v0.1.0.tar.gz" -> "tar.gz", "grab-linux-x86_64" -> "grab-linux-x86_64"
+                    let extension = extract_extension(&a.name);
+                    let latest_url = format!("/repo/{}/latest.{}", repo_path, extension);
                     format!(
                         r#"<div style="padding: 10px; margin: 6px 0; background: #fff; border: 1px solid #28a745; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
                             <div>{} <a href="{}" style="font-weight: 600; color: #0366d6; font-size: 1.05em;">{}</a>{}</div>
@@ -813,39 +838,35 @@ async fn get_repo_releases(
     Path(repo_path): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, (StatusCode, String)> {
-    // Check if requesting latest asset redirect
-    if repo_path.ends_with("/latest") {
-        let parts: Vec<&str> = repo_path
-            .trim_end_matches("/latest")
-            .rsplitn(2, '/')
-            .collect();
-        if parts.len() == 2 {
-            let asset_name = parts[0];
-            let repo_part = parts[1];
+    // Check if requesting latest asset redirect (format: /latest.extension)
+    if let Some(pos) = repo_path.rfind("/latest.") {
+        let extension = &repo_path[pos + 8..]; // after "/latest."
+        let repo_part = &repo_path[..pos];
 
-            // Parse repo path
-            let repo =
-                RepoPath::parse(repo_part).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        // Parse repo path
+        let repo =
+            RepoPath::parse(repo_part).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
-            // Get cached releases
-            if let Ok(Some(cached)) = state.cache.read_cache(&repo) {
-                if let Some(latest) = cached.releases.first() {
-                    // Find matching asset
-                    for asset in &latest.assets {
-                        if asset.name == asset_name {
-                            return Ok(
-                                axum::response::Redirect::temporary(&asset.url).into_response()
-                            );
-                        }
-                    }
+        // Get releases (from cache or fetch)
+        let releases = get_or_fetch_releases(&state, &repo).await?;
+
+        // Find matching asset by extension
+        if let Some(latest) = releases.first() {
+            for asset in &latest.assets {
+                let asset_ext = extract_extension(&asset.name);
+                if asset_ext == extension {
+                    return Ok(axum::response::Redirect::temporary(&asset.url).into_response());
                 }
             }
-
-            return Err((
-                StatusCode::NOT_FOUND,
-                format!("Asset '{}' not found in latest release", asset_name),
-            ));
         }
+
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!(
+                "No asset with extension '{}' found in latest release",
+                extension
+            ),
+        ));
     }
 
     // Check if requesting raw cache
@@ -857,22 +878,35 @@ async fn get_repo_releases(
 
     let repo = RepoPath::parse(&path_str).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
-    // Check cache first
-    if let Ok(Some(cached)) = state.cache.read_cache(&repo) {
-        if want_cache {
-            return Ok(Json(cached).into_response());
-        }
-        let html =
-            format_releases_html(&cached.releases, &repo.cache_key(), Some(cached.cached_at));
-        return Ok(Html(html).into_response());
+    // Get releases (from cache or fetch)
+    let cached_at = state
+        .cache
+        .read_cache(&repo)
+        .ok()
+        .flatten()
+        .map(|c| c.cached_at);
+    let releases = get_or_fetch_releases(&state, &repo).await?;
+
+    if want_cache {
+        let cached = CachedReleases {
+            releases,
+            cached_at: cached_at.unwrap_or_else(|| Utc::now()),
+            repo_path: repo.cache_key(),
+        };
+        return Ok(Json(cached).into_response());
     }
 
-    // If only wanting cache and not found
-    if want_cache {
-        return Err((
-            StatusCode::NOT_FOUND,
-            format!("No cache found for {}", repo.cache_key()),
-        ));
+    let html = format_releases_html(&releases, &repo.cache_key(), cached_at);
+    Ok(Html(html).into_response())
+}
+
+async fn get_or_fetch_releases(
+    state: &Arc<AppState>,
+    repo: &RepoPath,
+) -> Result<Vec<Release>, (StatusCode, String)> {
+    // Check cache first
+    if let Ok(Some(cached)) = state.cache.read_cache(repo) {
+        return Ok(cached.releases);
     }
 
     // Check if we're already fetching this repo
@@ -894,7 +928,7 @@ async fn get_repo_releases(
     }
 
     // Fetch releases
-    let result = state.fetcher.fetch_releases(&repo).await;
+    let result = state.fetcher.fetch_releases(repo).await;
 
     // Remove from pending
     {
@@ -905,57 +939,57 @@ async fn get_repo_releases(
     let releases = result.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Write to cache
-    if let Err(e) = state.cache.write_cache(&repo, releases.clone()) {
+    if let Err(e) = state.cache.write_cache(repo, releases.clone()) {
         eprintln!("Failed to write cache: {}", e);
     }
 
-    let html = format_releases_html(&releases, &repo.cache_key(), None);
-    Ok(Html(html).into_response())
+    Ok(releases)
 }
 
 async fn get_forgejo_releases(
     Path(forgejo_path): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, (StatusCode, String)> {
-    // Check if requesting latest asset redirect
-    if forgejo_path.ends_with("/latest") {
-        let parts: Vec<&str> = forgejo_path
-            .trim_end_matches("/latest")
-            .rsplitn(2, '/')
-            .collect();
-        if parts.len() == 2 {
-            let asset_name = parts[0];
-            let repo_part = parts[1];
+    // Check if requesting latest asset redirect (format: /latest.extension)
+    if let Some(pos) = forgejo_path.rfind("/latest.") {
+        let extension = &forgejo_path[pos + 8..]; // after "/latest."
+        let repo_part = &forgejo_path[..pos];
 
-            // Parse: host/owner/repo
-            let repo_parts: Vec<&str> = repo_part.splitn(3, '/').collect();
-            if repo_parts.len() == 3 {
-                let repo = RepoPath {
-                    host: repo_parts[0].to_string(),
-                    owner: repo_parts[1].to_string(),
-                    repo: repo_parts[2].to_string(),
-                };
-
-                // Get cached releases
-                if let Ok(Some(cached)) = state.cache.read_cache(&repo) {
-                    if let Some(latest) = cached.releases.first() {
-                        // Find matching asset
-                        for asset in &latest.assets {
-                            if asset.name == asset_name {
-                                return Ok(
-                                    axum::response::Redirect::temporary(&asset.url).into_response()
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-
+        // Parse: host/owner/repo
+        let repo_parts: Vec<&str> = repo_part.splitn(3, '/').collect();
+        if repo_parts.len() != 3 {
             return Err((
-                StatusCode::NOT_FOUND,
-                format!("Asset '{}' not found in latest release", asset_name),
+                StatusCode::BAD_REQUEST,
+                "Invalid path format. Use: /forgejo/{host}/{owner}/{repo}".to_string(),
             ));
         }
+
+        let repo = RepoPath {
+            host: repo_parts[0].to_string(),
+            owner: repo_parts[1].to_string(),
+            repo: repo_parts[2].to_string(),
+        };
+
+        // Get releases (from cache or fetch)
+        let releases = get_or_fetch_forgejo_releases(&state, &repo).await?;
+
+        // Find matching asset by extension
+        if let Some(latest) = releases.first() {
+            for asset in &latest.assets {
+                let asset_ext = extract_extension(&asset.name);
+                if asset_ext == extension {
+                    return Ok(axum::response::Redirect::temporary(&asset.url).into_response());
+                }
+            }
+        }
+
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!(
+                "No asset with extension '{}' found in latest release",
+                extension
+            ),
+        ));
     }
 
     // Check if requesting raw cache
@@ -980,22 +1014,35 @@ async fn get_forgejo_releases(
         repo: parts[2].to_string(),
     };
 
-    // Check cache first
-    if let Ok(Some(cached)) = state.cache.read_cache(&repo) {
-        if want_cache {
-            return Ok(Json(cached).into_response());
-        }
-        let html =
-            format_releases_html(&cached.releases, &repo.cache_key(), Some(cached.cached_at));
-        return Ok(Html(html).into_response());
+    // Get releases (from cache or fetch)
+    let cached_at = state
+        .cache
+        .read_cache(&repo)
+        .ok()
+        .flatten()
+        .map(|c| c.cached_at);
+    let releases = get_or_fetch_forgejo_releases(&state, &repo).await?;
+
+    if want_cache {
+        let cached = CachedReleases {
+            releases,
+            cached_at: cached_at.unwrap_or_else(|| Utc::now()),
+            repo_path: repo.cache_key(),
+        };
+        return Ok(Json(cached).into_response());
     }
 
-    // If only wanting cache and not found
-    if want_cache {
-        return Err((
-            StatusCode::NOT_FOUND,
-            format!("No cache found for {}", repo.cache_key()),
-        ));
+    let html = format_releases_html(&releases, &repo.cache_key(), cached_at);
+    Ok(Html(html).into_response())
+}
+
+async fn get_or_fetch_forgejo_releases(
+    state: &Arc<AppState>,
+    repo: &RepoPath,
+) -> Result<Vec<Release>, (StatusCode, String)> {
+    // Check cache first
+    if let Ok(Some(cached)) = state.cache.read_cache(repo) {
+        return Ok(cached.releases);
     }
 
     // Check if we're already fetching this repo
@@ -1031,12 +1078,11 @@ async fn get_forgejo_releases(
     let releases = result.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Write to cache
-    if let Err(e) = state.cache.write_cache(&repo, releases.clone()) {
+    if let Err(e) = state.cache.write_cache(repo, releases.clone()) {
         eprintln!("Failed to write cache: {}", e);
     }
 
-    let html = format_releases_html(&releases, &repo.cache_key(), None);
-    Ok(Html(html).into_response())
+    Ok(releases)
 }
 
 async fn health_check() -> impl IntoResponse {
