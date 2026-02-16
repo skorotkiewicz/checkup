@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Checkup - Repository Release Tracker</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 { color: #333; border-bottom: 2px solid #0366d6; padding-bottom: 10px; }
+        h2 { color: #0366d6; margin-top: 30px; }
+        code {
+            background: #f6f8fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        }
+        pre {
+            background: #f6f8fa;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+        }
+        .example {
+            background: #f0f6fc;
+            border-left: 4px solid #0366d6;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        ul { padding-left: 20px; }
+        li { margin: 10px 0; }
+        .endpoint {
+            display: inline-block;
+            background: #28a745;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 Checkup - Repository Release Tracker</h1>
+
+    <p>Welcome to <strong>Checkup</strong>, a simple HTTP server for fetching and caching releases from GitHub and GitLab repositories.</p>
+
+    <h2>Usage</h2>
+    <p>Access repository releases using the following URL pattern:</p>
+
+    <div class="example">
+        <code>http://localhost:3000/repo/<strong>{host}</strong>/<strong>{owner}</strong>/<strong>{repo}</strong></code>
+    </div>
+
+    <h2>Supported Hosts</h2>
+    <ul>
+        <li><code>github.com</code> - GitHub repositories</li>
+        <li><code>gitlab.com</code> - GitLab repositories</li>
+    </ul>
+
+    <h2>Examples</h2>
+
+    <h3>GitHub Repository</h3>
+    <p>Get releases from the Rust language repository:</p>
+    <div class="example">
+        <a href="/repo/github.com/rust-lang/rust" target="_blank">
+            <code>http://localhost:3000/repo/github.com/rust-lang/rust</code>
+        </a>
+    </div>
+
+    <h3>GitLab Repository</h3>
+    <p>Get releases from a GitLab project:</p>
+    <div class="example">
+        <code>http://localhost:3000/repo/gitlab.com/gitlab-org/gitlab</code>
+    </div>
+
+    <h2>Features</h2>
+    <ul>
+        <li><strong>Caching</strong> - Releases are cached locally to reduce API calls</li>
+        <li><strong>Cache Expiration</strong> - Configurable cache duration (default: 24 hours)</li>
+        <li><strong>Parallel Processing</strong> - Multi-core cache warming on startup</li>
+        <li><strong>Simple HTML Output</strong> - Easy to read release list</li>
+    </ul>
+
+    <h2>API Endpoints</h2>
+    <table style="width: 100%; border-collapse: collapse;">
+        <tr style="background: #f6f8fa;">
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Method</th>
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Endpoint</th>
+            <th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Description</th>
+        </tr>
+        <tr>
+            <td style="padding: 10px; border: 1px solid #ddd;"><span class="endpoint">GET</span></td>
+            <td style="padding: 10px; border: 1px solid #ddd;"><code>/repo/{path}</code></td>
+            <td style="padding: 10px; border: 1px solid #ddd;">Get releases for a repository</td>
+        </tr>
+        <tr>
+            <td style="padding: 10px; border: 1px solid #ddd;"><span class="endpoint">GET</span></td>
+            <td style="padding: 10px; border: 1px solid #ddd;"><code>/health</code></td>
+            <td style="padding: 10px; border: 1px solid #ddd;">Health check endpoint</td>
+        </tr>
+        <tr>
+            <td style="padding: 10px; border: 1px solid #ddd;"><span class="endpoint">GET</span></td>
+            <td style="padding: 10px; border: 1px solid #ddd;"><code>/cache/*</code></td>
+            <td style="padding: 10px; border: 1px solid #ddd;">Browse cache files</td>
+        </tr>
+    </table>
+
+    <h2>Command Line Options</h2>
+    <pre>checkup --help
+
+Options:
+  -c, --cache &lt;PATH&gt;        Cache directory path [default: data/cache]
+  -e, --cache-hours &lt;HOURS&gt;  Cache expiration in hours [default: 24]
+  -p, --port &lt;PORT&gt;          Server port [default: 3000]
+      --host &lt;HOST&gt;          Server host [default: 127.0.0.1]
+  -h, --help                 Print help</pre>
+
+    <h2>Cache Structure</h2>
+    <p>Cache files are stored in the following structure:</p>
+    <pre>data/cache/
+└── repo/
+    ├── github.com/
+    │   └── {owner}/
+    │       └── {repo}/
+    │           └── cache-{timestamp}.json
+    └── gitlab.com/
+        └── {owner}/
+            └── {repo}/
+                └── cache-{timestamp}.json</pre>
+
+    <hr style="margin-top: 40px;">
+    <p style="color: #666; text-align: center;">
+        <small>Checkup v0.1.0 | Built with Rust 🦀</small>
+    </p>
+</body>
+</html>
