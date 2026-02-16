@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::SystemTime};
 use thiserror::Error;
 use tokio::sync::RwLock;
-use tower_http::services::ServeDir;
 
 #[derive(Parser, Debug)]
 #[command(name = "checkup")]
@@ -1213,7 +1212,6 @@ async fn main() -> Result<()> {
         .route("/forgejo/*forgejo_path", get(get_forgejo_releases))
         .route("/health", get(health_check))
         .route("/", get(|| async { Html(include_str!("index.html")) }))
-        .nest_service("/cache", ServeDir::new(&args.cache))
         .with_state(state);
 
     let addr = format!("{}:{}", args.host, args.port);

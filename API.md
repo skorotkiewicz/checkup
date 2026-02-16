@@ -211,18 +211,6 @@ curl http://localhost:3000/health
 
 ---
 
-### GET /cache/*
-
-Browse raw cache files stored on disk.
-
-**Example Request**
-
-```bash
-curl http://localhost:3000/cache/repo/github.com/rust-lang/rust/cache-20240115_120000.json
-```
-
----
-
 ## Supported Platforms
 
 | Platform | Endpoint | API Version | Notes |
