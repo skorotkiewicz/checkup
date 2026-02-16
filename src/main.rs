@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    response::{Html, IntoResponse},
+    response::{Html, IntoResponse, Json, Response},
     routing::get,
     Router,
 };
@@ -470,13 +470,13 @@ struct GitHubRelease {
     zipball_url: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-struct GitLabAsset {
-    name: Option<String>,
-    url: Option<String>,
-    #[serde(default)]
-    external: bool,
-}
+// #[derive(Debug, Deserialize)]
+// struct GitLabAsset {
+//     name: Option<String>,
+//     url: Option<String>,
+//     #[serde(default)]
+//     external: bool,
+// }
 
 #[derive(Debug, Deserialize)]
 struct GitLabRelease {
@@ -508,7 +508,7 @@ struct GitLabSource {
 struct GitLabLink {
     name: String,
     url: String,
-    external: bool,
+    // external: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -592,9 +592,81 @@ pub fn format_releases_html(
         })
         .unwrap_or_default();
 
+    // Latest assets box at the top
+    let latest_assets_box = if let Some(latest) = releases.first() {
+        if !latest.assets.is_empty() {
+            let assets_list = latest
+                .assets
+                .iter()
+                .map(|a| {
+                    let size_info = if a.size > 0 {
+                        format!(" <span style='color: #666;'>({})</span>", format_size(a.size))
+                    } else {
+                        String::new()
+                    };
+                    let icon = if a.name.ends_with(".exe") || a.name.ends_with(".msi") {
+                        "🪟"
+                    } else if a.name.ends_with(".deb") || a.name.ends_with(".rpm") {
+                        "🐧"
+                    } else if a.name.ends_with(".dmg") || a.name.contains("darwin") || a.name.contains("macos") {
+                        "🍎"
+                    } else if a.name.ends_with(".AppImage") {
+                        "📦"
+                    } else if a.name.ends_with(".tar.gz") || a.name.ends_with(".tgz") {
+                        "🗜️"
+                    } else if a.name.ends_with(".zip") {
+                        "🗜️"
+                    } else if a.name.ends_with(".jar") {
+                        "☕"
+                    } else if a.name.contains("source") || a.name.contains("src") {
+                        "📄"
+                    } else {
+                        "📎"
+                    };
+                    let latest_url = format!("/repo/{}/{}/latest", repo_path, a.name);
+                    format!(
+                        r#"<div style="padding: 10px; margin: 6px 0; background: #fff; border: 1px solid #28a745; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                            <div>{} <a href="{}" style="font-weight: 600; color: #0366d6; font-size: 1.05em;">{}</a>{}</div>
+                            <div>
+                                <a href="{}" style="background: #28a745; color: white; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: 500;">⬇ Download</a>
+                            </div>
+                        </div>"#,
+                        icon, a.url, a.name, size_info, latest_url
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let version_name = latest.name.as_ref().unwrap_or(&latest.tag_name);
+            format!(
+                r#"<div style="margin-bottom: 30px; padding: 20px; background: linear-gradient(135deg, #f0fff4 0%, #e6ffed 100%); border: 2px solid #28a745; border-radius: 12px;">
+                    <h2 style="margin: 0 0 5px 0; color: #28a745;">⭐ Latest Release: {}</h2>
+                    <p style="margin: 0 0 15px 0; color: #666; font-size: 0.9em;">Published: {} • {} files</p>
+                    <div>
+                        {}
+                    </div>
+                </div>"#,
+                version_name,
+                latest.published_at.format("%Y-%m-%d %H:%M:%S UTC"),
+                latest.assets.len(),
+                assets_list
+            )
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
     let releases_html = releases
         .iter()
-        .map(|r| {
+        .enumerate()
+        .map(|(idx, r)| {
+            let latest_badge = if idx == 0 {
+                r#" <span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.8em; font-weight: bold;">⭐ Latest</span>"#
+            } else {
+                ""
+            };
             let prerelease_badge = if r.prerelease {
                 r#" <span style="background: #f0ad4e; padding: 2px 6px; border-radius: 3px; font-size: 0.8em;">Pre-release</span>"#
             } else {
@@ -687,7 +759,7 @@ pub fn format_releases_html(
             format!(
                 r#"<li style="margin-bottom: 25px; padding: 20px; background: #fff; border: 1px solid #e1e4e8; border-radius: 8px; list-style: none;">
                     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                        <strong style="font-size: 1.3em;"><a href="{}" target="_blank" style="color: #0366d6;">{}</a></strong>{}{}
+                        <strong style="font-size: 1.3em;"><a href="{}" target="_blank" style="color: #0366d6;">{}</a></strong>{}{}{}
                     </div>
                     <small style="color: #586069;">📅 Published: {}</small>
                     {}
@@ -695,6 +767,7 @@ pub fn format_releases_html(
                 </li>"#,
                 r.html_url,
                 name,
+                latest_badge,
                 prerelease_badge,
                 draft_badge,
                 r.published_at.format("%Y-%m-%d %H:%M:%S UTC"),
@@ -713,6 +786,7 @@ pub fn format_releases_html(
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }}
         h1 {{ color: #333; }}
+        h2 {{ margin: 0; }}
         ul {{ list-style-type: none; padding: 0; }}
         li {{ border-bottom: 1px solid #eee; padding: 15px 0; }}
         a {{ color: #0366d6; text-decoration: none; }}
@@ -724,26 +798,81 @@ pub fn format_releases_html(
 <body>
     <h1>Releases for {}</h1>
     {}
+    {}
+    <h2 style="margin-top: 30px; color: #333;">📋 All Releases</h2>
     <ul>
         {}
     </ul>
 </body>
 </html>"#,
-        repo_path, repo_path, cache_info, releases_html
+        repo_path, repo_path, cache_info, latest_assets_box, releases_html
     )
 }
 
 async fn get_repo_releases(
     Path(repo_path): Path<String>,
     State(state): State<Arc<AppState>>,
-) -> Result<Html<String>, (StatusCode, String)> {
-    let repo = RepoPath::parse(&repo_path).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+) -> Result<Response, (StatusCode, String)> {
+    // Check if requesting latest asset redirect
+    if repo_path.ends_with("/latest") {
+        let parts: Vec<&str> = repo_path
+            .trim_end_matches("/latest")
+            .rsplitn(2, '/')
+            .collect();
+        if parts.len() == 2 {
+            let asset_name = parts[0];
+            let repo_part = parts[1];
+
+            // Parse repo path
+            let repo =
+                RepoPath::parse(repo_part).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+            // Get cached releases
+            if let Ok(Some(cached)) = state.cache.read_cache(&repo) {
+                if let Some(latest) = cached.releases.first() {
+                    // Find matching asset
+                    for asset in &latest.assets {
+                        if asset.name == asset_name {
+                            return Ok(
+                                axum::response::Redirect::temporary(&asset.url).into_response()
+                            );
+                        }
+                    }
+                }
+            }
+
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("Asset '{}' not found in latest release", asset_name),
+            ));
+        }
+    }
+
+    // Check if requesting raw cache
+    let (path_str, want_cache) = if repo_path.ends_with("/cache") {
+        (repo_path.trim_end_matches("/cache").to_string(), true)
+    } else {
+        (repo_path.clone(), false)
+    };
+
+    let repo = RepoPath::parse(&path_str).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
 
     // Check cache first
     if let Ok(Some(cached)) = state.cache.read_cache(&repo) {
+        if want_cache {
+            return Ok(Json(cached).into_response());
+        }
         let html =
             format_releases_html(&cached.releases, &repo.cache_key(), Some(cached.cached_at));
-        return Ok(Html(html));
+        return Ok(Html(html).into_response());
+    }
+
+    // If only wanting cache and not found
+    if want_cache {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("No cache found for {}", repo.cache_key()),
+        ));
     }
 
     // Check if we're already fetching this repo
@@ -781,15 +910,63 @@ async fn get_repo_releases(
     }
 
     let html = format_releases_html(&releases, &repo.cache_key(), None);
-    Ok(Html(html))
+    Ok(Html(html).into_response())
 }
 
 async fn get_forgejo_releases(
     Path(forgejo_path): Path<String>,
     State(state): State<Arc<AppState>>,
-) -> Result<Html<String>, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, String)> {
+    // Check if requesting latest asset redirect
+    if forgejo_path.ends_with("/latest") {
+        let parts: Vec<&str> = forgejo_path
+            .trim_end_matches("/latest")
+            .rsplitn(2, '/')
+            .collect();
+        if parts.len() == 2 {
+            let asset_name = parts[0];
+            let repo_part = parts[1];
+
+            // Parse: host/owner/repo
+            let repo_parts: Vec<&str> = repo_part.splitn(3, '/').collect();
+            if repo_parts.len() == 3 {
+                let repo = RepoPath {
+                    host: repo_parts[0].to_string(),
+                    owner: repo_parts[1].to_string(),
+                    repo: repo_parts[2].to_string(),
+                };
+
+                // Get cached releases
+                if let Ok(Some(cached)) = state.cache.read_cache(&repo) {
+                    if let Some(latest) = cached.releases.first() {
+                        // Find matching asset
+                        for asset in &latest.assets {
+                            if asset.name == asset_name {
+                                return Ok(
+                                    axum::response::Redirect::temporary(&asset.url).into_response()
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("Asset '{}' not found in latest release", asset_name),
+            ));
+        }
+    }
+
+    // Check if requesting raw cache
+    let (path_str, want_cache) = if forgejo_path.ends_with("/cache") {
+        (forgejo_path.trim_end_matches("/cache").to_string(), true)
+    } else {
+        (forgejo_path.clone(), false)
+    };
+
     // Parse: host/owner/repo
-    let parts: Vec<&str> = forgejo_path.splitn(3, '/').collect();
+    let parts: Vec<&str> = path_str.splitn(3, '/').collect();
     if parts.len() != 3 {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -805,9 +982,20 @@ async fn get_forgejo_releases(
 
     // Check cache first
     if let Ok(Some(cached)) = state.cache.read_cache(&repo) {
+        if want_cache {
+            return Ok(Json(cached).into_response());
+        }
         let html =
             format_releases_html(&cached.releases, &repo.cache_key(), Some(cached.cached_at));
-        return Ok(Html(html));
+        return Ok(Html(html).into_response());
+    }
+
+    // If only wanting cache and not found
+    if want_cache {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("No cache found for {}", repo.cache_key()),
+        ));
     }
 
     // Check if we're already fetching this repo
@@ -848,7 +1036,7 @@ async fn get_forgejo_releases(
     }
 
     let html = format_releases_html(&releases, &repo.cache_key(), None);
-    Ok(Html(html))
+    Ok(Html(html).into_response())
 }
 
 async fn health_check() -> impl IntoResponse {
