@@ -4,11 +4,11 @@ A simple HTTP server for fetching and caching releases from GitHub and GitLab re
 
 ## Features
 
-- **Multi-platform Support**: Fetch releases from GitHub and GitLab
+- **Multi-platform Support**: Fetch releases from GitHub, GitLab, and any Forgejo instance
 - **Smart Caching**: Local file-based cache with configurable expiration
 - **Parallel Processing**: Multi-core cache warming using Rayon
 - **Simple HTTP API**: RESTful endpoints for easy integration
-- **HTML Output**: Human-readable release listings
+- **HTML Output**: Human-readable release listings with download links
 
 ## Installation
 
@@ -51,12 +51,24 @@ checkup --host 0.0.0.0 --port 8080
 
 ### GET /repo/{host}/{owner}/{repo}
 
-Fetch releases for a repository.
+Fetch releases for a GitHub or GitLab repository.
 
 **Example:**
 ```
 GET http://localhost:3000/repo/github.com/rust-lang/rust
 GET http://localhost:3000/repo/gitlab.com/gitlab-org/gitlab
+```
+
+**Response:** HTML page with list of releases
+
+### GET /forgejo/{host}/{owner}/{repo}
+
+Fetch releases from any Forgejo-based instance (Codeberg, self-hosted Forgejo, etc.).
+
+**Example:**
+```
+GET http://localhost:3000/forgejo/codeberg.org/forgejo/forgejo
+GET http://localhost:3000/forgejo/git.nextcloud.com/nextcloud/server
 ```
 
 **Response:** HTML page with list of releases
@@ -138,6 +150,18 @@ curl http://localhost:3000/repo/github.com/rust-lang/rust
 curl http://localhost:3000/repo/gitlab.com/gitlab-org/gitlab
 ```
 
+### Codeberg (Forgejo) Repository
+
+```bash
+curl http://localhost:3000/forgejo/codeberg.org/forgejo/forgejo
+```
+
+### Self-hosted Forgejo Instance
+
+```bash
+curl http://localhost:3000/forgejo/git.example.com/owner/repo
+```
+
 ### Check Health
 
 ```bash
@@ -146,10 +170,12 @@ curl http://localhost:3000/health
 
 ## Supported Platforms
 
-| Platform | API Used | Notes |
-|----------|----------|-------|
-| GitHub | REST API v3 | Full support including pre-release and draft flags |
-| GitLab | REST API v4 | Full support |
+| Platform | API Used | Endpoint | Notes |
+|----------|----------|----------|-------|
+| GitHub | REST API v3 | `/repo/github.com/...` | Full support including pre-release and draft flags |
+| GitLab | REST API v4 | `/repo/gitlab.com/...` | Full support |
+| Forgejo | REST API v1 | `/forgejo/{host}/...` | Works with Codeberg and any Forgejo instance |
+| Gitea | REST API v1 | `/forgejo/{host}/...` | Compatible with Forgejo endpoint |
 
 ## Rate Limits
 

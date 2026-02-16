@@ -60,6 +60,7 @@
     <ul>
         <li><code>github.com</code> - GitHub repositories</li>
         <li><code>gitlab.com</code> - GitLab repositories</li>
+        <li><strong>Any Forgejo instance</strong> - Use the <code>/forgejo/</code> endpoint</li>
     </ul>
 
     <h2>Examples</h2>
@@ -78,6 +79,15 @@
         <code>http://localhost:3000/repo/gitlab.com/gitlab-org/gitlab</code>
     </div>
 
+    <h3>Forgejo / Codeberg Repository</h3>
+    <p>Get releases from any Forgejo-based host (Codeberg, self-hosted Forgejo, etc.):</p>
+    <div class="example">
+        <code>http://localhost:3000/forgejo/codeberg.org/user/repo</code>
+    </div>
+    <p style="color: #666; font-size: 0.9em;">
+        Works with: codeberg.org, git.nextcloud.com, and any other Forgejo instance
+    </p>
+
     <h2>Features</h2>
     <ul>
         <li><strong>Caching</strong> - Releases are cached locally to reduce API calls</li>
@@ -95,8 +105,13 @@
         </tr>
         <tr>
             <td style="padding: 10px; border: 1px solid #ddd;"><span class="endpoint">GET</span></td>
-            <td style="padding: 10px; border: 1px solid #ddd;"><code>/repo/{path}</code></td>
-            <td style="padding: 10px; border: 1px solid #ddd;">Get releases for a repository</td>
+            <td style="padding: 10px; border: 1px solid #ddd;"><code>/repo/{host}/{owner}/{repo}</code></td>
+            <td style="padding: 10px; border: 1px solid #ddd;">Get releases (GitHub/GitLab)</td>
+        </tr>
+        <tr>
+            <td style="padding: 10px; border: 1px solid #ddd;"><span class="endpoint">GET</span></td>
+            <td style="padding: 10px; border: 1px solid #ddd;"><code>/forgejo/{host}/{owner}/{repo}</code></td>
+            <td style="padding: 10px; border: 1px solid #ddd;">Get releases from Forgejo instances</td>
         </tr>
         <tr>
             <td style="padding: 10px; border: 1px solid #ddd;"><span class="endpoint">GET</span></td>
@@ -123,12 +138,17 @@ Options:
     <h2>Cache Structure</h2>
     <p>Cache files are stored in the following structure:</p>
     <pre>data/cache/
+data/cache/
 └── repo/
     ├── github.com/
     │   └── {owner}/
     │       └── {repo}/
     │           └── cache-{timestamp}.json
-    └── gitlab.com/
+    ├── gitlab.com/
+    │   └── {owner}/
+    │       └── {repo}/
+    │           └── cache-{timestamp}.json
+    └── {forgejo-host}/
         └── {owner}/
             └── {repo}/
                 └── cache-{timestamp}.json</pre>

@@ -363,10 +363,87 @@ impl ReleaseFetcher {
                     .await
             }
             _ => Err(AppError::InvalidRepoPath(format!(
-                "Unsupported host: {}",
-                repo_path.host
+                "Unsupported host: {}. Use /forgejo/{} for Forgejo-based hosts.",
+                repo_path.host,
+                repo_path.cache_key()
             ))),
         }
+    }
+
+    pub async fn fetch_forgejo_releases(
+        &self,
+        host: &str,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Vec<Release>, AppError> {
+        let url = format!("https://{}/api/v1/repos/{}/{}/releases", host, owner, repo);
+
+        let response = self
+            .client
+            .get(&url)
+            .header("Accept", "application/json")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(AppError::CacheError(format!(
+                "Forgejo API ({}) returned status: {}",
+                host,
+                response.status()
+            )));
+        }
+
+        let forgejo_releases: Vec<ForgejoRelease> = response.json().await?;
+
+        Ok(forgejo_releases
+            .into_iter()
+            .map(|r| {
+                let mut assets: Vec<Asset> = r
+                    .assets
+                    .into_iter()
+                    .map(|a| Asset {
+                        name: a.name,
+                        url: a.browser_download_url,
+                        content_type: None,
+                        size: a.size.unwrap_or(0),
+                        download_count: a.download_count.unwrap_or(0),
+                    })
+                    .collect();
+
+                // Add source archives
+                if let Some(tarball) = r.tarball_url {
+                    assets.push(Asset {
+                        name: format!("{}.tar.gz", r.tag_name),
+                        url: tarball,
+                        content_type: Some("application/gzip".to_string()),
+                        size: 0,
+                        download_count: 0,
+                    });
+                }
+                if let Some(zipball) = r.zipball_url {
+                    assets.push(Asset {
+                        name: format!("{}.zip", r.tag_name),
+                        url: zipball,
+                        content_type: Some("application/zip".to_string()),
+                        size: 0,
+                        download_count: 0,
+                    });
+                }
+
+                Release {
+                    tag_name: r.tag_name,
+                    name: Some(r.name),
+                    published_at: r.published_at,
+                    html_url: r.html_url,
+                    body: Some(r.body),
+                    prerelease: r.prerelease,
+                    draft: r.draft,
+                    assets,
+                    source_tarball: None,
+                    source_zipball: None,
+                }
+            })
+            .collect())
     }
 }
 
@@ -432,6 +509,29 @@ struct GitLabLink {
     name: String,
     url: String,
     external: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct ForgejoRelease {
+    tag_name: String,
+    name: String,
+    published_at: DateTime<Utc>,
+    html_url: String,
+    body: String,
+    prerelease: bool,
+    draft: bool,
+    #[serde(default)]
+    assets: Vec<ForgejoAsset>,
+    tarball_url: Option<String>,
+    zipball_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ForgejoAsset {
+    name: String,
+    browser_download_url: String,
+    size: Option<u64>,
+    download_count: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -684,6 +784,73 @@ async fn get_repo_releases(
     Ok(Html(html))
 }
 
+async fn get_forgejo_releases(
+    Path(forgejo_path): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Html<String>, (StatusCode, String)> {
+    // Parse: host/owner/repo
+    let parts: Vec<&str> = forgejo_path.splitn(3, '/').collect();
+    if parts.len() != 3 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid path format. Use: /forgejo/{host}/{owner}/{repo}".to_string(),
+        ));
+    }
+
+    let repo = RepoPath {
+        host: parts[0].to_string(),
+        owner: parts[1].to_string(),
+        repo: parts[2].to_string(),
+    };
+
+    // Check cache first
+    if let Ok(Some(cached)) = state.cache.read_cache(&repo) {
+        let html =
+            format_releases_html(&cached.releases, &repo.cache_key(), Some(cached.cached_at));
+        return Ok(Html(html));
+    }
+
+    // Check if we're already fetching this repo
+    {
+        let pending = state.pending_cache.read().await;
+        if pending.contains_key(&repo.cache_key()) {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Already fetching releases for this repository. Please try again in a moment."
+                    .to_string(),
+            ));
+        }
+    }
+
+    // Mark as pending
+    {
+        let mut pending = state.pending_cache.write().await;
+        pending.insert(repo.cache_key(), true);
+    }
+
+    // Fetch releases from Forgejo
+    let result = state
+        .fetcher
+        .fetch_forgejo_releases(&repo.host, &repo.owner, &repo.repo)
+        .await;
+
+    // Remove from pending
+    {
+        let mut pending = state.pending_cache.write().await;
+        pending.remove(&repo.cache_key());
+    }
+
+    let releases = result.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Write to cache
+    if let Err(e) = state.cache.write_cache(&repo, releases.clone()) {
+        eprintln!("Failed to write cache: {}", e);
+    }
+
+    let html = format_releases_html(&releases, &repo.cache_key(), None);
+    Ok(Html(html))
+}
+
 async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "OK")
 }
@@ -809,6 +976,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/repo/*repo_path", get(get_repo_releases))
+        .route("/forgejo/*forgejo_path", get(get_forgejo_releases))
         .route("/health", get(health_check))
         .route("/", get(|| async { Html(include_str!("index.html")) }))
         .nest_service("/cache", ServeDir::new(&args.cache))
