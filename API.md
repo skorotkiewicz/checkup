@@ -1,0 +1,341 @@
+# Checkup API Documentation
+
+## Base URL
+
+```
+http://localhost:3000
+```
+
+## Endpoints
+
+### GET /repo/{host}/{owner}/{repo}
+
+Fetch releases for a GitHub or GitLab repository. Returns an HTML page with a list of releases, including download links for all assets.
+
+**URL Parameters**
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `host` | Platform hostname | `github.com`, `gitlab.com` |
+| `owner` | Repository owner/organization | `rust-lang` |
+| `repo` | Repository name | `rust` |
+
+**Example Request**
+
+```bash
+curl http://localhost:3000/repo/github.com/rust-lang/rust
+```
+
+**Response**
+
+- **Content-Type**: `text/html`
+- **Status**: `200 OK`
+
+Returns an HTML page with:
+- Latest release assets box at the top
+- All releases with download links
+- Asset sizes and download counts
+- Release notes (collapsible)
+
+**Error Responses**
+
+| Status | Description |
+|--------|-------------|
+| `400 Bad Request` | Invalid repository path format |
+| `500 Internal Server Error` | Failed to fetch releases from API |
+| `503 Service Unavailable` | Already fetching this repository (concurrent request) |
+
+---
+
+### GET /repo/{host}/{owner}/{repo}/cache
+
+Get cached releases as JSON. If cache doesn't exist or is expired, fetches fresh data from the API.
+
+**Example Request**
+
+```bash
+curl http://localhost:3000/repo/github.com/rust-lang/rust/cache
+```
+
+**Response**
+
+- **Content-Type**: `application/json`
+- **Status**: `200 OK`
+
+```json
+{
+  "releases": [
+    {
+      "tag_name": "v1.0.0",
+      "name": "Release 1.0.0",
+      "published_at": "2024-01-15T10:30:00Z",
+      "html_url": "https://github.com/owner/repo/releases/tag/v1.0.0",
+      "body": "Release notes...",
+      "prerelease": false,
+      "draft": false,
+      "assets": [
+        {
+          "name": "app-1.0.0.tar.gz",
+          "url": "https://github.com/owner/repo/releases/download/v1.0.0/app-1.0.0.tar.gz",
+          "content_type": "application/gzip",
+          "size": 1234567,
+          "download_count": 1234
+        }
+      ],
+      "source_tarball": null,
+      "source_zipball": null
+    }
+  ],
+  "cached_at": "2024-01-15T12:00:00Z",
+  "repo_path": "github.com/owner/repo"
+}
+```
+
+---
+
+### GET /repo/{host}/{owner}/{repo}/latest.{extension}
+
+Redirect to the latest release asset matching the given extension. Perfect for scripts and CI/CD pipelines.
+
+**URL Parameters**
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `extension` | File extension or asset suffix | `tar.gz`, `zip`, `AppImage`, `exe` |
+
+**How Extension Matching Works**
+
+The extension is extracted from the asset name:
+- `latest.tar.gz` → matches `*.tar.gz` files
+- `latest.zip` → matches `*.zip` files
+- `latest.AppImage` → matches `*.AppImage` files
+- `latest.exe` → matches `*.exe` files
+
+**Example Requests**
+
+```bash
+# Download latest tar.gz
+curl -L http://localhost:3000/repo/github.com/owner/repo/latest.tar.gz
+
+# Download latest AppImage
+curl -L http://localhost:3000/repo/github.com/owner/repo/latest.AppImage
+
+# Download latest Windows executable
+curl -L http://localhost:3000/repo/github.com/owner/repo/latest.exe
+```
+
+**Response**
+
+- **Status**: `307 Temporary Redirect`
+- **Location**: Direct download URL from the release
+
+**Error Responses**
+
+| Status | Description |
+|--------|-------------|
+| `400 Bad Request` | Invalid repository path format |
+| `404 Not Found` | No asset with matching extension found |
+
+---
+
+### GET /forgejo/{host}/{owner}/{repo}
+
+Fetch releases from any Forgejo-based instance (Codeberg, self-hosted Forgejo, Gitea).
+
+**URL Parameters**
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `host` | Forgejo instance hostname | `codeberg.org`, `git.nextcloud.com` |
+| `owner` | Repository owner/organization | `forgejo` |
+| `repo` | Repository name | `forgejo` |
+
+**Example Request**
+
+```bash
+curl http://localhost:3000/forgejo/codeberg.org/forgejo/forgejo
+```
+
+**Response**
+
+Same as `/repo/` endpoint - HTML page with releases.
+
+---
+
+### GET /forgejo/{host}/{owner}/{repo}/cache
+
+Get cached Forgejo releases as JSON.
+
+**Example Request**
+
+```bash
+curl http://localhost:3000/forgejo/codeberg.org/forgejo/forgejo/cache
+```
+
+**Response**
+
+Same JSON format as `/repo/.../cache`.
+
+---
+
+### GET /forgejo/{host}/{owner}/{repo}/latest.{extension}
+
+Redirect to the latest Forgejo release asset.
+
+**Example Request**
+
+```bash
+curl -L http://localhost:3000/forgejo/codeberg.org/forgejo/forgejo/latest.tar.gz
+```
+
+**Response**
+
+Same as `/repo/.../latest.{extension}`.
+
+---
+
+### GET /health
+
+Health check endpoint.
+
+**Example Request**
+
+```bash
+curl http://localhost:3000/health
+```
+
+**Response**
+
+- **Status**: `200 OK`
+- **Body**: `OK`
+
+---
+
+### GET /cache/*
+
+Browse raw cache files stored on disk.
+
+**Example Request**
+
+```bash
+curl http://localhost:3000/cache/repo/github.com/rust-lang/rust/cache-20240115_120000.json
+```
+
+---
+
+## Supported Platforms
+
+| Platform | Endpoint | API Version | Notes |
+|----------|----------|-------------|-------|
+| GitHub | `/repo/github.com/...` | REST API v3 | Full support including pre-release and draft flags |
+| GitLab | `/repo/gitlab.com/...` | REST API v4 | Full support |
+| Forgejo | `/forgejo/{host}/...` | REST API v1 | Works with Codeberg and any Forgejo instance |
+| Gitea | `/forgejo/{host}/...` | REST API v1 | Compatible with Forgejo endpoint |
+
+---
+
+## Cache Behavior
+
+### Cache Expiration
+
+- Default: 24 hours
+- Configurable via `--cache-hours` flag
+- Expired cache is automatically refreshed on next request
+
+### Cache Location
+
+```
+data/cache/
+└── repo/
+    ├── github.com/
+    │   └── {owner}/
+    │       └── {repo}/
+    │           └── cache-{timestamp}.json
+    ├── gitlab.com/
+    │   └── {owner}/
+    │       └── {repo}/
+    │           └── cache-{timestamp}.json
+    └── {forgejo-host}/
+        └── {owner}/
+            └── {repo}/
+                └── cache-{timestamp}.json
+```
+
+### Cache Warming
+
+On startup, the server:
+1. Scans existing cache directories
+2. Identifies expired caches
+3. Refreshes them in parallel using all available CPU cores
+
+---
+
+## Rate Limits
+
+| Platform | Unauthenticated | With Token |
+|----------|-----------------|------------|
+| GitHub | 60 requests/hour | 5000 requests/hour |
+| GitLab | Varies by instance | Varies by instance |
+| Forgejo | Varies by instance | Varies by instance |
+
+**Recommendations for heavy usage:**
+- Increase cache duration (`--cache-hours`)
+- Run behind a reverse proxy with rate limiting
+- Consider API tokens for higher limits
+
+---
+
+## Error Handling
+
+All errors return a plain text response with an appropriate HTTP status code.
+
+**Common Error Responses**
+
+| Status | Description |
+|--------|-------------|
+| `400 Bad Request` | Invalid URL format or parameters |
+| `404 Not Found` | Repository or asset not found |
+| `500 Internal Server Error` | API request failed or server error |
+| `503 Service Unavailable` | Concurrent request in progress |
+
+---
+
+## Examples
+
+### Download Latest Release in Script
+
+```bash
+#!/bin/bash
+# Always downloads the latest version
+curl -L -o app.tar.gz http://localhost:3000/repo/github.com/owner/repo/latest.tar.gz
+```
+
+### Get Release Info as JSON
+
+```bash
+# Get all releases as JSON
+curl http://localhost:3000/repo/github.com/owner/repo/cache | jq '.releases[0]'
+```
+
+### Check for New Releases
+
+```bash
+# Compare cached vs fresh
+OLD=$(curl -s http://localhost:3000/repo/github.com/owner/repo/cache | jq '.releases[0].tag_name')
+# Wait for cache to expire or force refresh
+NEW=$(curl -s http://localhost:3000/repo/github.com/owner/repo/cache | jq '.releases[0].tag_name')
+
+if [ "$OLD" != "$NEW" ]; then
+  echo "New release available!"
+fi
+```
+
+### Use in CI/CD
+
+```yaml
+# GitHub Actions example
+- name: Download latest tool
+  run: |
+    curl -L -o tool.tar.gz http://your-server:3000/repo/github.com/owner/tool/latest.tar.gz
+    tar xzf tool.tar.gz
+```
