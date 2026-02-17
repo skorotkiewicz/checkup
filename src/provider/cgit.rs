@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use crate::{
     AppState, RepoPath,
-    format_html::{extract_extension, format_releases_html},
+    format_html::{format_releases_html, rename_to_latest},
     provider::CachedReleases,
 };
 
@@ -111,32 +111,33 @@ pub async fn handler(
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, (StatusCode, String)> {
     // Check if requesting latest asset redirect
-    if let Some(pos) = cgit_path.rfind("/latest.") {
-        let extension = &cgit_path[pos + 8..];
-        let repo_part = &cgit_path[..pos];
-        let parts: Vec<&str> = repo_part.splitn(2, '/').collect();
-        if parts.len() != 2 {
-            return Err((StatusCode::BAD_REQUEST, "Invalid path format".to_string()));
-        }
-        let repo = RepoPath {
-            host: parts[0].to_string(),
-            owner: String::new(),
-            repo: parts[1].to_string(),
-        };
-        let releases = get_or_fetch(&state, &repo).await?;
+    if let Some(pos) = cgit_path.rfind('/') {
+        let last_segment = &cgit_path[pos + 1..];
+        if last_segment.starts_with("latest") {
+            let repo_part = &cgit_path[..pos];
+            let parts: Vec<&str> = repo_part.splitn(2, '/').collect();
+            if parts.len() != 2 {
+                return Err((StatusCode::BAD_REQUEST, "Invalid path format".to_string()));
+            }
+            let repo = RepoPath {
+                host: parts[0].to_string(),
+                owner: String::new(),
+                repo: parts[1].to_string(),
+            };
+            let releases = get_or_fetch(&state, &repo).await?;
 
-        if let Some(latest) = releases.first() {
-            for asset in &latest.assets {
-                let asset_ext = extract_extension(&asset.name);
-                if asset_ext == extension {
-                    return Ok(Redirect::temporary(&asset.url).into_response());
+            if let Some(latest) = releases.first() {
+                for asset in &latest.assets {
+                    if rename_to_latest(&asset.name) == last_segment {
+                        return Ok(Redirect::temporary(&asset.url).into_response());
+                    }
                 }
             }
+            return Err((
+                StatusCode::NOT_FOUND,
+                format!("No asset matching '{}' found", last_segment),
+            ));
         }
-        return Err((
-            StatusCode::NOT_FOUND,
-            format!("No asset with extension '{}' found", extension),
-        ));
     }
 
     // Check if requesting raw cache

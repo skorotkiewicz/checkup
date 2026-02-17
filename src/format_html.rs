@@ -18,25 +18,92 @@ fn format_size(size: u64) -> String {
     }
 }
 
-/// Extract extension from asset name, removing version numbers
-/// e.g., "v0.1.0.tar.gz" -> "tar.gz", "grab-linux-x86_64" -> "grab-linux-x86_64"
-/// "package-1.0.0.zip" -> "zip", "app-v2.0.0.AppImage" -> "AppImage"
-pub fn extract_extension(name: &str) -> String {
-    // Common double extensions
-    let double_extensions = [".tar.gz", ".tar.bz2", ".tar.xz"];
+/// Split a filename into stem and known compound extension.
+/// e.g., "bat-v0.26.1-x86_64.tar.gz" -> ("bat-v0.26.1-x86_64", ".tar.gz")
+pub fn split_stem_ext(filename: &str) -> (&str, &str) {
+    const KNOWN_EXTS: &[&str] = &[
+        ".tar.gz.sha256",
+        ".tar.xz.sha256",
+        ".tar.bz2.sha256",
+        ".tar.zst.sha256",
+        ".zip.sha256",
+        ".xz.sha256",
+        ".gz.sha256",
+        ".bz2.sha256",
+        ".xz.asc",
+        ".tar.gz",
+        ".tar.xz",
+        ".tar.bz2",
+        ".tar.zst",
+        ".xz",
+        ".gz",
+        ".bz2",
+        ".zst",
+        ".zip",
+        ".sha256",
+        ".sha512",
+        ".exe",
+        ".msi",
+        ".deb",
+        ".rpm",
+    ];
 
-    for ext in double_extensions {
-        if name.ends_with(ext) {
-            return ext[1..].to_string(); // Remove leading dot
+    for ext in KNOWN_EXTS {
+        if let Some(stem) = filename.strip_suffix(ext) {
+            return (stem, ext);
         }
     }
 
-    // Single extension
-    if let Some(pos) = name.rfind('.') {
-        name[pos + 1..].to_string()
+    // Fallback: split on last dot, but only if suffix looks like a real file extension
+    // (not a version fragment like ".2-linux-amd64" or ".2" in "forgejo-14.0.2-linux-amd64")
+    if let Some(pos) = filename.rfind('.') {
+        let suffix = &filename[pos + 1..];
+        if !suffix.is_empty()
+            && !suffix.contains('-')
+            && !suffix.chars().all(|c| c.is_ascii_digit())
+        {
+            return (&filename[..pos], &filename[pos..]);
+        }
+    }
+    (filename, "")
+}
+
+/// Rename an asset filename to a "latest" variant, stripping app name and version.
+/// e.g., "bat-v0.26.1-x86_64-linux.tar.gz" -> "latest-x86_64-linux.tar.gz"
+///       "forgejo-14.0.2-linux-amd64.xz"    -> "latest-linux-amd64.xz"
+///       "bat_0.26.1_amd64.deb"             -> "latest_amd64.deb"
+///       "linux-6.19.2.tar.gz"              -> "latest.tar.gz"
+pub fn rename_to_latest(filename: &str) -> String {
+    let (stem, ext) = split_stem_ext(filename);
+
+    // Detect separator: use '_' if stem contains underscores but no dashes
+    let sep = if stem.contains('-') { '-' } else { '_' };
+    let parts: Vec<&str> = stem.split(sep).collect();
+
+    // Find the version segment (optional "v" prefix + at least major.minor numeric)
+    let version_idx = parts.iter().position(|p| {
+        let p = p.strip_prefix('v').unwrap_or(p);
+        let mut iter = p.split('.');
+        iter.next().map_or(false, |s| s.parse::<u64>().is_ok())
+            && iter.next().map_or(false, |s| s.parse::<u64>().is_ok())
+    });
+
+    let suffix_parts = match version_idx {
+        // Drop everything up to and including the version
+        Some(idx) => &parts[idx + 1..],
+        // No version found: drop just the app name (first segment)
+        None => &parts[1..],
+    };
+
+    if suffix_parts.is_empty() {
+        format!("latest{}", ext)
     } else {
-        // No extension, use the whole name
-        name.to_string()
+        format!(
+            "latest{}{}{}",
+            sep,
+            suffix_parts.join(&sep.to_string()),
+            ext
+        )
     }
 }
 
@@ -68,7 +135,7 @@ pub fn format_releases_html(
                         String::new()
                     };
                     let icon = icons::get_file_icon(&a.name, 18);
-                    let extension = extract_extension(&a.name);
+                    let latest_name = rename_to_latest(&a.name);
                     let path_for_url = if route_prefix == "github" || route_prefix == "gitlab" {
                         // Strip the host part (e.g., "github.com/owner/repo" -> "owner/repo")
                         repo_path.splitn(2, '/').nth(1).unwrap_or(repo_path).to_string()
@@ -78,7 +145,7 @@ pub fn format_releases_html(
                         repo_path.to_string()
                     };
 
-                    let latest_url = format!("/{}/{}/latest.{}", route_prefix, path_for_url, extension);
+                    let latest_url = format!("/{}/{}/{}", route_prefix, path_for_url, latest_name);
                     format!(
                         r#"<div style="padding: 10px; margin: 6px 0; color: #777; background: #fff; border: 1px solid #28a745; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
                             <div style="display: flex; align-items: center; gap: 6px;"><span style="display: flex; flex-shrink: 0;">{}</span> <a href="{}" style="font-weight: 600; color: #0366d6; font-size: 1.05em;">{}</a>{}</div>
