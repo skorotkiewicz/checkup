@@ -8,6 +8,7 @@ use axum::{
 };
 use chrono::{DateTime, Duration, Utc};
 use clap::Parser;
+use scraper::{Html as ScraperHtml, Selector};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -362,8 +363,9 @@ impl ReleaseFetcher {
                     .await
             }
             _ => Err(AppError::InvalidRepoPath(format!(
-                "Unsupported host: {}. Use /forgejo/{} for Forgejo-based hosts.",
+                "Unsupported host: {}. Use /forgejo/{} for Forgejo-based hosts or /cgit/{} for cgit hosts.",
                 repo_path.host,
+                repo_path.cache_key(),
                 repo_path.cache_key()
             ))),
         }
@@ -443,6 +445,104 @@ impl ReleaseFetcher {
                 }
             })
             .collect())
+    }
+
+    pub async fn fetch_cgit_releases(
+        &self,
+        host: &str,
+        repo_path: &str,
+    ) -> Result<Vec<Release>, AppError> {
+        // cgit repos have paths like: /pub/scm/linux/kernel/git/stable/linux.git
+        let url = format!("https://{}/{}/refs/tags", host, repo_path);
+
+        let response = self
+            .client
+            .get(&url)
+            .header("Accept", "text/html")
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(AppError::CacheError(format!(
+                "cgit ({}) returned status: {}",
+                host,
+                response.status()
+            )));
+        }
+
+        let html = response.text().await?;
+        let document = ScraperHtml::parse_document(&html);
+
+        let mut releases = Vec::new();
+
+        // Parse cgit tags table
+        let row_selector = Selector::parse("table.list tr").unwrap();
+        let tag_selector = Selector::parse("td:nth-child(1) a").unwrap();
+        let download_selector = Selector::parse("td:nth-child(2) a").unwrap();
+        let age_selector = Selector::parse("td:nth-child(4) span, td:nth-child(5) span").unwrap();
+
+        for row in document.select(&row_selector).skip(1) {
+            // Skip header row
+            let tag_elem = row.select(&tag_selector).next();
+            let download_elem = row.select(&download_selector).next();
+
+            if let (Some(tag_elem), Some(download_elem)) = (tag_elem, download_elem) {
+                let tag_name = tag_elem.text().collect::<String>().trim().to_string();
+                let download_url = download_elem.value().attr("href").unwrap_or("").to_string();
+
+                if tag_name.is_empty() || download_url.is_empty() {
+                    continue;
+                }
+
+                // Extract asset name from download URL
+                let asset_name = download_url
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&tag_name)
+                    .to_string();
+
+                // Try to parse age for published_at
+                let published_at = row
+                    .select(&age_selector)
+                    .next()
+                    .and_then(|el| {
+                        el.value()
+                            .attr("title")
+                            .and_then(|t| DateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S %z").ok())
+                            .map(|dt| dt.with_timezone(&Utc))
+                    })
+                    .unwrap_or_else(Utc::now);
+
+                let full_download_url = if download_url.starts_with("http") {
+                    download_url
+                } else {
+                    format!("https://{}{}", host, download_url)
+                };
+
+                let html_url = format!("https://{}/{}/tag/?h={}", host, repo_path, tag_name);
+
+                releases.push(Release {
+                    tag_name: tag_name.clone(),
+                    name: Some(tag_name.clone()),
+                    published_at,
+                    html_url,
+                    body: None,
+                    prerelease: false,
+                    draft: false,
+                    assets: vec![Asset {
+                        name: asset_name,
+                        url: full_download_url,
+                        content_type: Some("application/gzip".to_string()),
+                        size: 0,
+                        download_count: 0,
+                    }],
+                    source_tarball: None,
+                    source_zipball: None,
+                });
+            }
+        }
+
+        Ok(releases)
     }
 }
 
@@ -1088,6 +1188,145 @@ async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "OK")
 }
 
+async fn get_cgit_releases(
+    Path(cgit_path): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Response, (StatusCode, String)> {
+    // Check if requesting latest asset redirect (format: /latest.extension)
+    if let Some(pos) = cgit_path.rfind("/latest.") {
+        let extension = &cgit_path[pos + 8..]; // after "/latest."
+        let repo_part = &cgit_path[..pos];
+
+        // Parse: host/repo_path
+        let parts: Vec<&str> = repo_part.splitn(2, '/').collect();
+        if parts.len() != 2 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Invalid path format. Use: /cgit/{host}/{repo_path}".to_string(),
+            ));
+        }
+
+        let repo = RepoPath {
+            host: parts[0].to_string(),
+            owner: String::new(),
+            repo: parts[1].to_string(),
+        };
+
+        // Get releases (from cache or fetch)
+        let releases = get_or_fetch_cgit_releases(&state, &repo).await?;
+
+        // Find matching asset by extension
+        if let Some(latest) = releases.first() {
+            for asset in &latest.assets {
+                let asset_ext = extract_extension(&asset.name);
+                if asset_ext == extension {
+                    return Ok(axum::response::Redirect::temporary(&asset.url).into_response());
+                }
+            }
+        }
+
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!(
+                "No asset with extension '{}' found in latest release",
+                extension
+            ),
+        ));
+    }
+
+    // Check if requesting raw cache
+    let (path_str, want_cache) = if cgit_path.ends_with("/cache") {
+        (cgit_path.trim_end_matches("/cache").to_string(), true)
+    } else {
+        (cgit_path.clone(), false)
+    };
+
+    // Parse: host/repo_path
+    let parts: Vec<&str> = path_str.splitn(2, '/').collect();
+    if parts.len() != 2 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid path format. Use: /cgit/{host}/{repo_path}".to_string(),
+        ));
+    }
+
+    let repo = RepoPath {
+        host: parts[0].to_string(),
+        owner: String::new(),
+        repo: parts[1].to_string(),
+    };
+
+    // Get releases (from cache or fetch)
+    let cached_at = state
+        .cache
+        .read_cache(&repo)
+        .ok()
+        .flatten()
+        .map(|c| c.cached_at);
+    let releases = get_or_fetch_cgit_releases(&state, &repo).await?;
+
+    if want_cache {
+        let cached = CachedReleases {
+            releases,
+            cached_at: cached_at.unwrap_or_else(|| Utc::now()),
+            repo_path: repo.cache_key(),
+        };
+        return Ok(Json(cached).into_response());
+    }
+
+    let html = format_releases_html(&releases, &repo.cache_key(), cached_at);
+    Ok(Html(html).into_response())
+}
+
+async fn get_or_fetch_cgit_releases(
+    state: &Arc<AppState>,
+    repo: &RepoPath,
+) -> Result<Vec<Release>, (StatusCode, String)> {
+    // Check cache first
+    if let Ok(Some(cached)) = state.cache.read_cache(repo) {
+        return Ok(cached.releases);
+    }
+
+    // Check if we're already fetching this repo
+    {
+        let pending = state.pending_cache.read().await;
+        if pending.contains_key(&repo.cache_key()) {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Already fetching releases for this repository. Please try again in a moment."
+                    .to_string(),
+            ));
+        }
+    }
+
+    // Mark as pending
+    {
+        let mut pending = state.pending_cache.write().await;
+        pending.insert(repo.cache_key(), true);
+    }
+
+    // Fetch releases from cgit
+    let result = state
+        .fetcher
+        .fetch_cgit_releases(&repo.host, &repo.repo)
+        .await;
+
+    // Remove from pending
+    {
+        let mut pending = state.pending_cache.write().await;
+        pending.remove(&repo.cache_key());
+    }
+
+    let releases = result.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    // Write to cache
+    if let Err(e) = state.cache.write_cache(repo, releases.clone()) {
+        eprintln!("Failed to write cache: {}", e);
+    }
+
+    Ok(releases)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -1100,6 +1339,7 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/repo/*repo_path", get(get_repo_releases))
         .route("/forgejo/*forgejo_path", get(get_forgejo_releases))
+        .route("/cgit/*cgit_path", get(get_cgit_releases))
         .route("/health", get(health_check))
         .route("/", get(|| async { Html(include_str!("index.html")) }))
         .with_state(state);

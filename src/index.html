@@ -156,6 +156,10 @@
             <h4>Codeberg</h4>
             <p><code>/forgejo/codeberg.org/...</code></p>
         </div>
+        <div class="feature-card">
+            <h4>cgit</h4>
+            <p><code>/cgit/{host}/...</code></p>
+        </div>
     </div>
 
     <h2>API Endpoints</h2>
@@ -171,6 +175,10 @@
         <tr>
             <td><code>/forgejo/{host}/{owner}/{repo}</code></td>
             <td>Get releases (HTML) from any Forgejo instance</td>
+        </tr>
+        <tr>
+            <td><code>/cgit/{host}/{repo_path}</code></td>
+            <td>Get releases (HTML) from cgit instances</td>
         </tr>
         <tr>
             <td><code>/repo/{host}/{owner}/{repo}/cache</code></td>
@@ -210,6 +218,11 @@
     <h3>Codeberg (Forgejo)</h3>
     <div class="example">
         <code>/forgejo/codeberg.org/forgejo/forgejo</code>
+    </div>
+
+    <h3>cgit (Linux Kernel)</h3>
+    <div class="example">
+        <code>/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git</code>
     </div>
 
     <hr>

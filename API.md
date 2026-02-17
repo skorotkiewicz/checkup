@@ -194,6 +194,67 @@ Same as `/repo/.../latest.{extension}`.
 
 ---
 
+### GET /cgit/{host}/{repo_path}
+
+Fetch releases from any cgit instance. cgit is a web interface for Git repositories used by many projects including the Linux kernel.
+
+**URL Parameters**
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `host` | cgit instance hostname | `git.kernel.org` |
+| `repo_path` | Full repository path | `pub/scm/linux/kernel/git/stable/linux.git` |
+
+**Example Request**
+
+```bash
+curl http://localhost:3000/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+```
+
+**Response**
+
+Same as `/repo/` endpoint - HTML page with releases.
+
+**Notes**
+
+- cgit doesn't have a JSON API, so releases are parsed from HTML
+- Only tag-based releases with downloadable archives are shown
+- Release dates are extracted from the cgit page when available
+
+---
+
+### GET /cgit/{host}/{repo_path}/cache
+
+Get cached cgit releases as JSON.
+
+**Example Request**
+
+```bash
+curl http://localhost:3000/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/cache
+```
+
+**Response**
+
+Same JSON format as `/repo/.../cache`.
+
+---
+
+### GET /cgit/{host}/{repo_path}/latest.{extension}
+
+Redirect to the latest cgit release asset.
+
+**Example Request**
+
+```bash
+curl -L http://localhost:3000/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/latest.tar.gz
+```
+
+**Response**
+
+Same as `/repo/.../latest.{extension}`.
+
+---
+
 ### GET /health
 
 Health check endpoint.
@@ -219,6 +280,7 @@ curl http://localhost:3000/health
 | GitLab | `/repo/gitlab.com/...` | REST API v4 | Full support |
 | Forgejo | `/forgejo/{host}/...` | REST API v1 | Works with Codeberg and any Forgejo instance |
 | Gitea | `/forgejo/{host}/...` | REST API v1 | Compatible with Forgejo endpoint |
+| cgit | `/cgit/{host}/...` | HTML parsing | Works with any cgit instance (e.g., Linux kernel) |
 
 ---
 

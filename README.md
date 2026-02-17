@@ -39,6 +39,9 @@ curl http://localhost:3000/repo/gitlab.com/gitlab-org/gitlab
 # Codeberg (Forgejo)
 curl http://localhost:3000/forgejo/codeberg.org/forgejo/forgejo
 
+# cgit
+curl http://localhost:3000/cgit/git.zx2c4.com/cgit
+
 # Get latest asset
 curl -L http://localhost:3000/repo/github.com/owner/repo/latest.tar.gz
 
@@ -48,7 +51,7 @@ curl http://localhost:3000/repo/github.com/owner/repo/cache
 
 ## Features
 
-- **Multi-platform**: GitHub, GitLab, Forgejo, Gitea
+- **Multi-platform**: GitHub, GitLab, Forgejo, Gitea, cgit
 - **Smart caching**: Configurable expiration
 - **Latest downloads**: Consistent URLs for latest releases
 - **JSON API**: Programmatic access to cached data
