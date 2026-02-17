@@ -1,7 +1,7 @@
 use super::{Asset, Release};
 use crate::{
     AppState, RepoPath,
-    format_html::{format_processing_html, format_releases_html, rename_to_latest},
+    format_html::{format_error_html, format_processing_html, format_releases_html, rename_to_latest},
     provider::CachedReleases,
 };
 use anyhow::Result;
@@ -197,6 +197,10 @@ pub async fn handler(
             let html = format_processing_html(&cache_key, "forgejo");
             Ok(Html(html).into_response())
         }
+        Ok(FetchResult::Error(err)) => {
+            let html = format_error_html(&cache_key, &err, "forgejo");
+            Ok(Html(html).into_response())
+        }
         Err(e) => Err(e),
     }
 }
@@ -204,6 +208,7 @@ pub async fn handler(
 pub enum FetchResult {
     Cached,
     Processing,
+    Error(String),
 }
 
 pub async fn get_or_spawn_fetch(
@@ -218,6 +223,10 @@ pub async fn get_or_spawn_fetch(
 
     let cache_key = repo.cache_key();
 
+    if let Some(error) = state.failed_repos.get(&cache_key) {
+        return Ok(FetchResult::Error(error.clone()));
+    }
+
     if state.pending_repos.contains(&cache_key) {
         return Ok(FetchResult::Processing);
     }
@@ -229,7 +238,9 @@ pub async fn get_or_spawn_fetch(
     tokio::spawn(async move {
         let result = fetch_and_cache(&state, &repo).await;
         state.pending_repos.remove(&cache_key);
-        result
+        if let Err(e) = result {
+            state.failed_repos.insert(cache_key.clone(), e.to_string());
+        }
     });
 
     Ok(FetchResult::Processing)
@@ -251,6 +262,8 @@ async fn fetch_and_cache(state: &Arc<AppState>, repo: &RepoPath) -> Result<()> {
     state.cache.write_timestamp(&repo.host, &repo.owner, &repo.repo)?;
     state.cache.write_json(&repo.host, &repo.owner, &repo.repo, &cached)?;
     state.cache.write_html(&repo.host, &repo.owner, &repo.repo, &html)?;
+
+    state.failed_repos.remove(&cache_key);
 
     Ok(())
 }

@@ -370,3 +370,56 @@ pub fn format_processing_html(repo_path: &str, route_prefix: &str) -> String {
         repo_path, repo_path, route_prefix, repo_path
     )
 }
+
+pub fn format_error_html(repo_path: &str, error_message: &str, route_prefix: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>Error - {}</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }}
+        .container {{ text-align: center; padding: 60px 20px; }}
+        .error-icon {{ font-size: 64px; margin-bottom: 20px; }}
+        h1 {{ color: #d73a49; margin-bottom: 10px; }}
+        p {{ color: #666; font-size: 1.1em; }}
+        .error-box {{
+            background: #fff5f5;
+            border: 1px solid #f5c6cb;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px auto;
+            max-width: 600px;
+            text-align: left;
+            color: #721c24;
+            font-family: monospace;
+            font-size: 0.9em;
+        }}
+        .retry-btn {{
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 24px;
+            background: #0366d6;
+            color: white;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 500;
+        }}
+        .retry-btn:hover {{ background: #0257b3; }}
+        code {{ background: #f6f8fa; padding: 2px 6px; border-radius: 4px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="error-icon">&#10060;</div>
+        <h1>Failed to Fetch Repository</h1>
+        <p>The repository <code>{}</code> could not be fetched.</p>
+        <div class="error-box">{}</div>
+        <p>Check if the repository exists and is accessible.</p>
+        <!-- <a href="/{}/{}" class="retry-btn">Try Again</a> -->
+    </div>
+</body>
+</html>"#,
+        repo_path, repo_path, error_message, route_prefix, repo_path
+    )
+}
