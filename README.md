@@ -2,6 +2,13 @@
 
 A simple HTTP server for fetching and caching releases from GitHub, GitLab, Forgejo, and cgit repositories.
 
+<p align="center">
+  <img src="docs/front.png" width="40%" />
+  <img src="docs/intro.png" width="33%" /> 
+</p>
+
+<!--![checkup banner](docs/intro.png)-->
+
 ## Installation
 
 ### From Source
