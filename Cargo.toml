@@ -1,6 +1,6 @@
 [package]
 name = "checkup"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 [dependencies]
@@ -19,4 +19,4 @@ thiserror = "1.0"
 regex = "1.10"
 url = "2.5"
 scraper = "0.19"
-# openssl = { version = "0.10", features = ["vendored"] }
+openssl = { version = "0.10", features = ["vendored"] }
