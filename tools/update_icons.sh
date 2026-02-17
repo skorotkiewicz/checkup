@@ -11,8 +11,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SVG_DIR="$SCRIPT_DIR/docs/icons/SVGs/fill"
-OUTPUT="$SCRIPT_DIR/src/icons.rs"
+SVG_DIR="$SCRIPT_DIR/../docs/icons/SVGs/fill"
+OUTPUT="$SCRIPT_DIR/../src/icons.rs"
 
 # ── Icon mapping: CONST_NAME -> svg-filename (without -fill.svg) ─────────
 # Add or remove entries here to change which icons are generated.
