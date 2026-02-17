@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use crate::{
     format_html::{extract_extension, format_releases_html},
+    provider::CachedReleases,
     AppState, RepoPath,
 };
 
@@ -167,14 +168,14 @@ pub async fn handler(
 
     let cached_at = state
         .cache
-        .read_cache(&repo)
+        .read_cache::<CachedReleases>(&repo.host, &repo.owner, &repo.repo)
         .ok()
         .flatten()
         .map(|c| c.cached_at);
     let releases = get_or_fetch(&state, &repo).await?;
 
     if want_cache {
-        let cached = super::CachedReleases {
+        let cached = CachedReleases {
             releases,
             cached_at: cached_at.unwrap_or_else(Utc::now),
             repo_path: repo.cache_key(),
@@ -191,14 +192,27 @@ async fn get_or_fetch(
     repo: &RepoPath,
 ) -> Result<Vec<Release>, (StatusCode, String)> {
     // Check cache first
-    if let Ok(Some(cached)) = state.cache.read_cache(repo) {
-        return Ok(cached.releases);
+    if let Ok(Some(cached)) =
+        state
+            .cache
+            .read_cache::<CachedReleases>(&repo.host, &repo.owner, &repo.repo)
+    {
+        if !state.cache.is_expired(cached.cached_at) {
+            return Ok(cached.releases);
+        }
     }
 
     let releases = fetch_releases(&state.client, &repo.host, &repo.owner, &repo.repo)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-    let _ = state.cache.write_cache(repo, releases.clone());
+    let cached = CachedReleases {
+        releases: releases.clone(),
+        cached_at: Utc::now(),
+        repo_path: repo.cache_key(),
+    };
+    let _ = state
+        .cache
+        .write_cache(&repo.host, &repo.owner, &repo.repo, &cached);
     Ok(releases)
 }
