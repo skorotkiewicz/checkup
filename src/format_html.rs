@@ -86,8 +86,16 @@ pub fn format_releases_html(
                         "📎"
                     };
                     let extension = extract_extension(&a.name);
-                    let latest_url = format!("/{}/{}", route_prefix, repo_path);
-                    let latest_url = format!("{}/latest.{}", latest_url, extension);
+                    let path_for_url = if route_prefix == "github" || route_prefix == "gitlab" {
+                        // Strip the host part (e.g., "github.com/owner/repo" -> "owner/repo")
+                        repo_path.splitn(2, '/').nth(1).unwrap_or(repo_path).to_string()
+                    } else if route_prefix == "cgit" {
+                        repo_path.replace("//", "/")
+                    } else {
+                        repo_path.to_string()
+                    };
+
+                    let latest_url = format!("/{}/{}/latest.{}", route_prefix, path_for_url, extension);
                     format!(
                         r#"<div style="padding: 10px; margin: 6px 0; background: #fff; border: 1px solid #28a745; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
                             <div>{} <a href="{}" style="font-weight: 600; color: #0366d6; font-size: 1.05em;">{}</a>{}</div>

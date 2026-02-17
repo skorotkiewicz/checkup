@@ -8,22 +8,21 @@ http://localhost:3000
 
 ## Endpoints
 
-### GET /repo/{host}/{owner}/{repo}
+### GET /github/{owner}/{repo}
 
-Fetch releases for a GitHub or GitLab repository. Returns an HTML page with a list of releases, including download links for all assets.
+Fetch releases for a GitHub repository. Returns an HTML page with a list of releases, including download links for all assets.
 
 **URL Parameters**
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `host` | Platform hostname | `github.com`, `gitlab.com` |
 | `owner` | Repository owner/organization | `rust-lang` |
 | `repo` | Repository name | `rust` |
 
 **Example Request**
 
 ```bash
-curl http://localhost:3000/repo/github.com/rust-lang/rust
+curl http://localhost:3000/github/rust-lang/rust
 ```
 
 **Response**
@@ -43,18 +42,86 @@ Returns an HTML page with:
 |--------|-------------|
 | `400 Bad Request` | Invalid repository path format |
 | `500 Internal Server Error` | Failed to fetch releases from API |
-| `503 Service Unavailable` | Already fetching this repository (concurrent request) |
 
 ---
 
-### GET /repo/{host}/{owner}/{repo}/cache
+### GET /gitlab/{owner}/{repo}
+
+Fetch releases for a GitLab repository.
+
+**Example Request**
+
+```bash
+curl http://localhost:3000/gitlab/gitlab-org/gitlab
+```
+
+**Response**
+
+Same as GitHub endpoint - HTML page with releases.
+
+---
+
+### GET /forgejo/{host}/{owner}/{repo}
+
+Fetch releases from any Forgejo-based instance (Codeberg, self-hosted Forgejo, Gitea).
+
+**URL Parameters**
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `host` | Forgejo instance hostname | `codeberg.org` |
+| `owner` | Repository owner/organization | `forgejo` |
+| `repo` | Repository name | `forgejo` |
+
+**Example Request**
+
+```bash
+curl http://localhost:3000/forgejo/codeberg.org/forgejo/forgejo
+```
+
+**Response**
+
+Same as GitHub endpoint - HTML page with releases.
+
+---
+
+### GET /cgit/{host}/{repo_path}
+
+Fetch releases from any cgit instance. cgit is a web interface for Git repositories used by many projects including the Linux kernel.
+
+**URL Parameters**
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `host` | cgit instance hostname | `git.kernel.org` |
+| `repo_path` | Full repository path | `pub/scm/linux/kernel/git/stable/linux.git` |
+
+**Example Request**
+
+```bash
+curl http://localhost:3000/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+```
+
+**Response**
+
+Same as GitHub endpoint - HTML page with releases.
+
+**Notes**
+
+- cgit doesn't have a JSON API, so releases are parsed from HTML
+- Only tag-based releases with downloadable archives are shown
+- Release dates are extracted from the cgit page when available
+
+---
+
+### GET /github/{owner}/{repo}/cache
 
 Get cached releases as JSON. If cache doesn't exist or is expired, fetches fresh data from the API.
 
 **Example Request**
 
 ```bash
-curl http://localhost:3000/repo/github.com/rust-lang/rust/cache
+curl http://localhost:3000/github/rust-lang/rust/cache
 ```
 
 **Response**
@@ -93,7 +160,7 @@ curl http://localhost:3000/repo/github.com/rust-lang/rust/cache
 
 ---
 
-### GET /repo/{host}/{owner}/{repo}/latest.{extension}
+### GET /github/{owner}/{repo}/latest.{extension}
 
 Redirect to the latest release asset matching the given extension. Perfect for scripts and CI/CD pipelines.
 
@@ -115,13 +182,13 @@ The extension is extracted from the asset name:
 
 ```bash
 # Download latest tar.gz
-curl -L http://localhost:3000/repo/github.com/owner/repo/latest.tar.gz
+curl -L http://localhost:3000/github/owner/repo/latest.tar.gz
 
 # Download latest AppImage
-curl -L http://localhost:3000/repo/github.com/owner/repo/latest.AppImage
+curl -L http://localhost:3000/github/owner/repo/latest.AppImage
 
 # Download latest Windows executable
-curl -L http://localhost:3000/repo/github.com/owner/repo/latest.exe
+curl -L http://localhost:3000/github/owner/repo/latest.exe
 ```
 
 **Response**
@@ -135,123 +202,6 @@ curl -L http://localhost:3000/repo/github.com/owner/repo/latest.exe
 |--------|-------------|
 | `400 Bad Request` | Invalid repository path format |
 | `404 Not Found` | No asset with matching extension found |
-
----
-
-### GET /forgejo/{host}/{owner}/{repo}
-
-Fetch releases from any Forgejo-based instance (Codeberg, self-hosted Forgejo, Gitea).
-
-**URL Parameters**
-
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `host` | Forgejo instance hostname | `codeberg.org`, `git.nextcloud.com` |
-| `owner` | Repository owner/organization | `forgejo` |
-| `repo` | Repository name | `forgejo` |
-
-**Example Request**
-
-```bash
-curl http://localhost:3000/forgejo/codeberg.org/forgejo/forgejo
-```
-
-**Response**
-
-Same as `/repo/` endpoint - HTML page with releases.
-
----
-
-### GET /forgejo/{host}/{owner}/{repo}/cache
-
-Get cached Forgejo releases as JSON.
-
-**Example Request**
-
-```bash
-curl http://localhost:3000/forgejo/codeberg.org/forgejo/forgejo/cache
-```
-
-**Response**
-
-Same JSON format as `/repo/.../cache`.
-
----
-
-### GET /forgejo/{host}/{owner}/{repo}/latest.{extension}
-
-Redirect to the latest Forgejo release asset.
-
-**Example Request**
-
-```bash
-curl -L http://localhost:3000/forgejo/codeberg.org/forgejo/forgejo/latest.tar.gz
-```
-
-**Response**
-
-Same as `/repo/.../latest.{extension}`.
-
----
-
-### GET /cgit/{host}/{repo_path}
-
-Fetch releases from any cgit instance. cgit is a web interface for Git repositories used by many projects including the Linux kernel.
-
-**URL Parameters**
-
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `host` | cgit instance hostname | `git.kernel.org` |
-| `repo_path` | Full repository path | `pub/scm/linux/kernel/git/stable/linux.git` |
-
-**Example Request**
-
-```bash
-curl http://localhost:3000/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
-```
-
-**Response**
-
-Same as `/repo/` endpoint - HTML page with releases.
-
-**Notes**
-
-- cgit doesn't have a JSON API, so releases are parsed from HTML
-- Only tag-based releases with downloadable archives are shown
-- Release dates are extracted from the cgit page when available
-
----
-
-### GET /cgit/{host}/{repo_path}/cache
-
-Get cached cgit releases as JSON.
-
-**Example Request**
-
-```bash
-curl http://localhost:3000/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/cache
-```
-
-**Response**
-
-Same JSON format as `/repo/.../cache`.
-
----
-
-### GET /cgit/{host}/{repo_path}/latest.{extension}
-
-Redirect to the latest cgit release asset.
-
-**Example Request**
-
-```bash
-curl -L http://localhost:3000/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git/latest.tar.gz
-```
-
-**Response**
-
-Same as `/repo/.../latest.{extension}`.
 
 ---
 
@@ -276,11 +226,11 @@ curl http://localhost:3000/health
 
 | Platform | Endpoint | API Version | Notes |
 |----------|----------|-------------|-------|
-| GitHub | `/repo/github.com/...` | REST API v3 | Full support including pre-release and draft flags |
-| GitLab | `/repo/gitlab.com/...` | REST API v4 | Full support |
-| Forgejo | `/forgejo/{host}/...` | REST API v1 | Works with Codeberg and any Forgejo instance |
-| Gitea | `/forgejo/{host}/...` | REST API v1 | Compatible with Forgejo endpoint |
-| cgit | `/cgit/{host}/...` | HTML parsing | Works with any cgit instance (e.g., Linux kernel) |
+| GitHub | `/github/owner/repo` | REST API v3 | Full support including pre-release and draft flags |
+| GitLab | `/gitlab/owner/repo` | REST API v4 | Full support |
+| Forgejo | `/forgejo/host/owner/repo` | REST API v1 | Works with Codeberg and any Forgejo instance |
+| Gitea | `/forgejo/host/owner/repo` | REST API v1 | Compatible with Forgejo endpoint |
+| cgit | `/cgit/host/repo-path` | HTML parsing | Works with any cgit instance (e.g., Linux kernel) |
 
 ---
 
@@ -311,13 +261,6 @@ data/cache/
                 └── cache-{timestamp}.json
 ```
 
-### Cache Warming
-
-On startup, the server:
-1. Scans existing cache directories
-2. Identifies expired caches
-3. Refreshes them concurrently using async operations
-
 ---
 
 ## Rate Limits
@@ -346,7 +289,6 @@ All errors return a plain text response with an appropriate HTTP status code.
 | `400 Bad Request` | Invalid URL format or parameters |
 | `404 Not Found` | Repository or asset not found |
 | `500 Internal Server Error` | API request failed or server error |
-| `503 Service Unavailable` | Concurrent request in progress |
 
 ---
 
@@ -357,27 +299,14 @@ All errors return a plain text response with an appropriate HTTP status code.
 ```bash
 #!/bin/bash
 # Always downloads the latest version
-curl -L -o app.tar.gz http://localhost:3000/repo/github.com/owner/repo/latest.tar.gz
+curl -L -o app.tar.gz http://localhost:3000/github/owner/repo/latest.tar.gz
 ```
 
 ### Get Release Info as JSON
 
 ```bash
 # Get all releases as JSON
-curl http://localhost:3000/repo/github.com/owner/repo/cache | jq '.releases[0]'
-```
-
-### Check for New Releases
-
-```bash
-# Compare cached vs fresh
-OLD=$(curl -s http://localhost:3000/repo/github.com/owner/repo/cache | jq '.releases[0].tag_name')
-# Wait for cache to expire or force refresh
-NEW=$(curl -s http://localhost:3000/repo/github.com/owner/repo/cache | jq '.releases[0].tag_name')
-
-if [ "$OLD" != "$NEW" ]; then
-  echo "New release available!"
-fi
+curl http://localhost:3000/github/owner/repo/cache | jq '.releases[0]'
 ```
 
 ### Use in CI/CD
@@ -386,6 +315,6 @@ fi
 # GitHub Actions example
 - name: Download latest tool
   run: |
-    curl -L -o tool.tar.gz http://your-server:3000/repo/github.com/owner/tool/latest.tar.gz
+    curl -L -o tool.tar.gz http://your-server:3000/github/owner/tool/latest.tar.gz
     tar xzf tool.tar.gz
 ```

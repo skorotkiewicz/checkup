@@ -131,8 +131,7 @@ pub async fn handler(
     if let Some(pos) = repo_path.rfind("/latest.") {
         let extension = &repo_path[pos + 8..];
         let repo_part = &repo_path[..pos];
-        let repo =
-            RepoPath::parse(repo_part).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        let repo = parse_gitlab_path(repo_part)?;
         let releases = get_or_fetch(&state, &repo).await?;
 
         if let Some(latest) = releases.first() {
@@ -156,7 +155,7 @@ pub async fn handler(
         (repo_path.clone(), false)
     };
 
-    let repo = RepoPath::parse(&path_str).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let repo = parse_gitlab_path(&path_str)?;
 
     let cached_at = state
         .cache
@@ -177,6 +176,21 @@ pub async fn handler(
 
     let html = format_releases_html(&releases, &repo.cache_key(), "gitlab", cached_at);
     Ok(Html(html).into_response())
+}
+
+fn parse_gitlab_path(path: &str) -> Result<RepoPath, (StatusCode, String)> {
+    let parts: Vec<&str> = path.splitn(2, '/').collect();
+    if parts.len() != 2 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid path format. Use: /gitlab/{owner}/{repo}".to_string(),
+        ));
+    }
+    Ok(RepoPath {
+        host: "gitlab.com".to_string(),
+        owner: parts[0].to_string(),
+        repo: parts[1].to_string(),
+    })
 }
 
 async fn get_or_fetch(

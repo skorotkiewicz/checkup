@@ -81,7 +81,7 @@
         }
         .feature-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
             gap: 20px;
             margin: 20px 0;
         }
@@ -125,16 +125,16 @@
 </head>
 <body>
     <h1>Checkup</h1>
-    <p class="subtitle">A simple HTTP server for fetching and caching releases from GitHub, GitLab, and Forgejo repositories.</p>
+    <p class="subtitle">A simple HTTP server for fetching and caching releases from GitHub, GitLab, Forgejo, and cgit repositories.</p>
 
     <div class="try-it">
         <h3>🎯 Quick Start</h3>
         <p>Access repository releases with a simple URL pattern:</p>
         <div class="example" style="background: white; margin-top: 15px;">
-            <code>http://localhost:3000/repo/<strong>github.com</strong>/<strong>owner</strong>/<strong>repo</strong></code>
+            <code>http://localhost:3000/<strong>github</strong>/owner/repo</code>
         </div>
         <p style="margin-top: 15px;">
-            <a href="/repo/github.com/rust-lang/rust" target="_blank">→ Try: rust-lang/rust</a>
+            <a href="/github/rust-lang/rust" target="_blank">→ Try: rust-lang/rust</a>
         </p>
     </div>
 
@@ -142,23 +142,19 @@
     <div class="feature-grid">
         <div class="feature-card">
             <h4>GitHub</h4>
-            <p><code>/repo/github.com/...</code></p>
+            <p><code>/github/owner/repo</code></p>
         </div>
         <div class="feature-card">
             <h4>GitLab</h4>
-            <p><code>/repo/gitlab.com/...</code></p>
-        </div>
-        <div class="feature-card">
-            <h4>Forgejo</h4>
-            <p><code>/forgejo/{host}/...</code></p>
+            <p><code>/gitlab/owner/repo</code></p>
         </div>
         <div class="feature-card">
             <h4>Codeberg</h4>
-            <p><code>/forgejo/codeberg.org/...</code></p>
+            <p><code>/forgejo/codeberg.org/owner/repo</code></p>
         </div>
         <div class="feature-card">
             <h4>cgit</h4>
-            <p><code>/cgit/{host}/...</code></p>
+            <p><code>/cgit/host/repo-path</code></p>
         </div>
     </div>
 
@@ -169,23 +165,27 @@
             <th>Description</th>
         </tr>
         <tr>
-            <td><code>/repo/{host}/{owner}/{repo}</code></td>
-            <td>Get releases (HTML) for GitHub/GitLab</td>
+            <td><code>/github/{owner}/{repo}</code></td>
+            <td>Get GitHub releases (HTML)</td>
+        </tr>
+        <tr>
+            <td><code>/gitlab/{owner}/{repo}</code></td>
+            <td>Get GitLab releases (HTML)</td>
         </tr>
         <tr>
             <td><code>/forgejo/{host}/{owner}/{repo}</code></td>
-            <td>Get releases (HTML) from any Forgejo instance</td>
+            <td>Get releases from any Forgejo instance (HTML)</td>
         </tr>
         <tr>
             <td><code>/cgit/{host}/{repo_path}</code></td>
-            <td>Get releases (HTML) from cgit instances</td>
+            <td>Get releases from cgit instances (HTML)</td>
         </tr>
         <tr>
-            <td><code>/repo/{host}/{owner}/{repo}/cache</code></td>
+            <td><code>/*/.../cache</code></td>
             <td>Get cached releases (JSON)</td>
         </tr>
         <tr>
-            <td><code>/repo/{host}/{owner}/{repo}/latest.{ext}</code></td>
+            <td><code>/*/.../latest.{ext}</code></td>
             <td>Redirect to latest release asset</td>
         </tr>
     </table>
@@ -193,9 +193,9 @@
     <h2>Latest Asset Downloads</h2>
     <p>Get the latest version of any asset with a consistent URL:</p>
     <div class="example">
-        <code>/repo/github.com/owner/repo/latest.tar.gz</code><br>
-        <code>/repo/github.com/owner/repo/latest.AppImage</code><br>
-        <code>/repo/github.com/owner/repo/latest.exe</code>
+        <code>/github/owner/repo/latest.tar.gz</code><br>
+        <code>/github/owner/repo/latest.AppImage</code><br>
+        <code>/github/owner/repo/latest.exe</code>
     </div>
     <p style="color: #666; font-size: 0.9em;">
         Perfect for scripts and CI/CD pipelines - the URL stays the same even when new versions are released.
@@ -205,24 +205,35 @@
 
     <h3>GitHub</h3>
     <div class="example">
-        <a href="/repo/github.com/sharkdp/bat" target="_blank">
-            <code>/repo/github.com/sharkdp/bat</code>
+        <a href="/github/sharkdp/bat" target="_blank">
+            <code>/github/sharkdp/bat</code>
         </a>
     </div>
 
     <h3>GitLab</h3>
     <div class="example">
-        <code>/repo/gitlab.com/gitlab-org/gitlab</code>
+        <a href="/gitlab/gitlab-org/gitlab" target="_blank">
+            <code>/gitlab/gitlab-org/gitlab</code>
+        </a>
     </div>
 
     <h3>Codeberg (Forgejo)</h3>
     <div class="example">
-        <code>/forgejo/codeberg.org/forgejo/forgejo</code>
+        <a href="/forgejo/codeberg.org/forgejo/forgejo" target="_blank">
+            <code>/forgejo/codeberg.org/forgejo/forgejo</code>
+        </a>
     </div>
 
     <h3>cgit (Linux Kernel)</h3>
     <div class="example">
-        <code>/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git</code>
+        <a href="/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git" target="_blank">
+            <code>/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git</code>
+        </a>
+        <p>
+            <a href="/cgit/git.zx2c4.com/cgit" target="_blank">
+                <code>/cgit/git.zx2c4.com/cgit</code>
+            </a>
+        </p>
     </div>
 
     <hr>

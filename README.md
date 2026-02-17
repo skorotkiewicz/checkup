@@ -1,6 +1,6 @@
 # Checkup - Repository Release Tracker
 
-A simple HTTP server for fetching and caching releases from GitHub and GitLab repositories
+A simple HTTP server for fetching and caching releases from GitHub, GitLab, Forgejo, and cgit repositories.
 
 ## Installation
 
@@ -31,22 +31,22 @@ cargo build --release
 
 ```bash
 # GitHub
-curl http://localhost:3000/repo/github.com/rust-lang/rust
+curl http://localhost:3000/github/rust-lang/rust
 
 # GitLab
-curl http://localhost:3000/repo/gitlab.com/gitlab-org/gitlab
+curl http://localhost:3000/gitlab/gitlab-org/gitlab
 
 # Codeberg (Forgejo)
 curl http://localhost:3000/forgejo/codeberg.org/forgejo/forgejo
 
-# cgit
-curl http://localhost:3000/cgit/git.zx2c4.com/cgit
+# cgit (Linux kernel)
+curl http://localhost:3000/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
 
 # Get latest asset
-curl -L http://localhost:3000/repo/github.com/owner/repo/latest.tar.gz
+curl -L http://localhost:3000/github/owner/repo/latest.tar.gz
 
 # Get cached JSON
-curl http://localhost:3000/repo/github.com/owner/repo/cache
+curl http://localhost:3000/github/owner/repo/cache
 ```
 
 ## Features
@@ -55,7 +55,23 @@ curl http://localhost:3000/repo/github.com/owner/repo/cache
 - **Smart caching**: Configurable expiration
 - **Latest downloads**: Consistent URLs for latest releases
 - **JSON API**: Programmatic access to cached data
-- **Concurrent processing**: Async cache warming
+- **Modular design**: Separate providers for each platform
+
+## Project Structure
+
+```
+src/
+├── main.rs           # Application entry point and routing
+├── cache.rs          # Cache management
+├── format_html.rs    # HTML formatting for releases
+├── index.html        # Frontend page
+└── provider/
+    ├── mod.rs        # Provider module and shared types
+    ├── github.rs     # GitHub provider
+    ├── gitlab.rs     # GitLab provider
+    ├── forgejo.rs    # Forgejo/Gitea provider
+    └── cgit.rs       # cgit provider
+```
 
 ## Documentation
 
