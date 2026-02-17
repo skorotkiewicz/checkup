@@ -1,4 +1,9 @@
 use super::{Asset, Release};
+use crate::{
+    AppState, RepoPath,
+    format_html::{format_processing_html, format_releases_html, rename_to_latest},
+    provider::CachedReleases,
+};
 use anyhow::Result;
 use axum::{
     extract::{Path, State},
@@ -9,12 +14,6 @@ use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::Deserialize;
 use std::sync::Arc;
-
-use crate::{
-    AppState, RepoPath,
-    format_html::{format_releases_html, rename_to_latest},
-    provider::CachedReleases,
-};
 
 #[derive(Debug, Deserialize)]
 struct GitLabRelease {
@@ -85,7 +84,6 @@ pub async fn fetch_releases(client: &Client, owner: &str, repo: &str) -> Result<
         .map(|r| {
             let mut assets: Vec<Asset> = Vec::new();
 
-            // Add sources (tar.gz, zip, etc.)
             for source in r.assets.sources {
                 assets.push(Asset {
                     name: format!("{}.{}", r.tag_name, source.format.to_lowercase()),
@@ -96,7 +94,6 @@ pub async fn fetch_releases(client: &Client, owner: &str, repo: &str) -> Result<
                 });
             }
 
-            // Add links (external binaries, etc.)
             for link in r.assets.links {
                 assets.push(Asset {
                     name: link.name,
@@ -127,13 +124,12 @@ pub async fn handler(
     Path(repo_path): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, (StatusCode, String)> {
-    // Check if requesting latest asset redirect
     if let Some(pos) = repo_path.rfind('/') {
         let last_segment = &repo_path[pos + 1..];
         if last_segment.starts_with("latest") {
             let repo_part = &repo_path[..pos];
             let repo = parse_gitlab_path(repo_part)?;
-            let releases = get_or_fetch(&state, &repo).await?;
+            let releases = fetch_blocking(&state, &repo).await?;
 
             if let Some(latest) = releases.first() {
                 for asset in &latest.assets {
@@ -149,7 +145,6 @@ pub async fn handler(
         }
     }
 
-    // Check if requesting raw cache
     let (path_str, want_cache) = if repo_path.ends_with("/cache") {
         (repo_path.trim_end_matches("/cache").to_string(), true)
     } else {
@@ -157,26 +152,30 @@ pub async fn handler(
     };
 
     let repo = parse_gitlab_path(&path_str)?;
+    let cache_key = repo.cache_key();
 
-    let cached_at = state
-        .cache
-        .read_cache::<CachedReleases>(&repo.host, &repo.owner, &repo.repo)
-        .ok()
-        .flatten()
-        .map(|c| c.cached_at);
-    let releases = get_or_fetch(&state, &repo).await?;
-
-    if want_cache {
-        let cached = CachedReleases {
+    match get_or_spawn_fetch(&state, &repo).await {
+        Ok(FetchResult::Cached {
             releases,
-            cached_at: cached_at.unwrap_or_else(Utc::now),
-            repo_path: repo.cache_key(),
-        };
-        return Ok(Json(cached).into_response());
+            cached_at,
+        }) => {
+            if want_cache {
+                let cached = CachedReleases {
+                    releases,
+                    cached_at,
+                    repo_path: cache_key.clone(),
+                };
+                return Ok(Json(cached).into_response());
+            }
+            let html = format_releases_html(&releases, &cache_key, "gitlab", Some(cached_at));
+            Ok(Html(html).into_response())
+        }
+        Ok(FetchResult::Processing) => {
+            let html = format_processing_html(&cache_key, "gitlab");
+            Ok(Html(html).into_response())
+        }
+        Err(e) => Err(e),
     }
-
-    let html = format_releases_html(&releases, &repo.cache_key(), "gitlab", cached_at);
-    Ok(Html(html).into_response())
 }
 
 fn parse_gitlab_path(path: &str) -> Result<RepoPath, (StatusCode, String)> {
@@ -194,11 +193,68 @@ fn parse_gitlab_path(path: &str) -> Result<RepoPath, (StatusCode, String)> {
     })
 }
 
-async fn get_or_fetch(
+pub enum FetchResult {
+    Cached {
+        releases: Vec<Release>,
+        cached_at: DateTime<Utc>,
+    },
+    Processing,
+}
+
+pub async fn get_or_spawn_fetch(
+    state: &Arc<AppState>,
+    repo: &RepoPath,
+) -> Result<FetchResult, (StatusCode, String)> {
+    if let Ok(Some(cached)) =
+        state
+            .cache
+            .read_cache::<CachedReleases>(&repo.host, &repo.owner, &repo.repo)
+    {
+        if !state.cache.is_expired(cached.cached_at) {
+            return Ok(FetchResult::Cached {
+                releases: cached.releases,
+                cached_at: cached.cached_at,
+            });
+        }
+    }
+
+    let cache_key = repo.cache_key();
+
+    if state.pending_repos.contains(&cache_key) {
+        return Ok(FetchResult::Processing);
+    }
+
+    state.pending_repos.insert(cache_key.clone());
+
+    let state = state.clone();
+    let repo = repo.clone();
+    tokio::spawn(async move {
+        let result = fetch_and_cache(&state, &repo).await;
+        state.pending_repos.remove(&cache_key);
+        result
+    });
+
+    Ok(FetchResult::Processing)
+}
+
+async fn fetch_and_cache(state: &Arc<AppState>, repo: &RepoPath) -> Result<()> {
+    let releases = fetch_releases(&state.client, &repo.owner, &repo.repo).await?;
+
+    let cached = CachedReleases {
+        releases,
+        cached_at: Utc::now(),
+        repo_path: repo.cache_key(),
+    };
+    let _ = state
+        .cache
+        .write_cache(&repo.host, &repo.owner, &repo.repo, &cached);
+    Ok(())
+}
+
+async fn fetch_blocking(
     state: &Arc<AppState>,
     repo: &RepoPath,
 ) -> Result<Vec<Release>, (StatusCode, String)> {
-    // Check cache first
     if let Ok(Some(cached)) =
         state
             .cache

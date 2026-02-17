@@ -1,4 +1,9 @@
 use super::{Asset, Release};
+use crate::{
+    AppState, RepoPath,
+    format_html::{format_processing_html, format_releases_html, rename_to_latest},
+    provider::CachedReleases,
+};
 use anyhow::Result;
 use axum::{
     extract::{Path, State},
@@ -9,12 +14,6 @@ use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::Deserialize;
 use std::sync::Arc;
-
-use crate::{
-    AppState, RepoPath,
-    format_html::{format_releases_html, rename_to_latest},
-    provider::CachedReleases,
-};
 
 #[derive(Debug, Deserialize)]
 struct ForgejoRelease {
@@ -79,7 +78,6 @@ pub async fn fetch_releases(
                 })
                 .collect();
 
-            // Add source archives
             if let Some(tarball) = r.tarball_url {
                 assets.push(Asset {
                     name: format!("{}.tar.gz", r.tag_name),
@@ -119,7 +117,6 @@ pub async fn handler(
     Path(forgejo_path): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, (StatusCode, String)> {
-    // Check if requesting latest asset redirect
     if let Some(pos) = forgejo_path.rfind('/') {
         let last_segment = &forgejo_path[pos + 1..];
         if last_segment.starts_with("latest") {
@@ -133,7 +130,7 @@ pub async fn handler(
                 owner: parts[1].to_string(),
                 repo: parts[2].to_string(),
             };
-            let releases = get_or_fetch(&state, &repo).await?;
+            let releases = fetch_blocking(&state, &repo).await?;
 
             if let Some(latest) = releases.first() {
                 for asset in &latest.assets {
@@ -149,14 +146,12 @@ pub async fn handler(
         }
     }
 
-    // Check if requesting raw cache
     let (path_str, want_cache) = if forgejo_path.ends_with("/cache") {
         (forgejo_path.trim_end_matches("/cache").to_string(), true)
     } else {
         (forgejo_path.clone(), false)
     };
 
-    // Parse: host/owner/repo
     let parts: Vec<&str> = path_str.splitn(3, '/').collect();
     if parts.len() != 3 {
         return Err((StatusCode::BAD_REQUEST, "Invalid path format".to_string()));
@@ -166,33 +161,94 @@ pub async fn handler(
         owner: parts[1].to_string(),
         repo: parts[2].to_string(),
     };
+    let cache_key = repo.cache_key();
 
-    let cached_at = state
-        .cache
-        .read_cache::<CachedReleases>(&repo.host, &repo.owner, &repo.repo)
-        .ok()
-        .flatten()
-        .map(|c| c.cached_at);
-    let releases = get_or_fetch(&state, &repo).await?;
-
-    if want_cache {
-        let cached = CachedReleases {
+    match get_or_spawn_fetch(&state, &repo).await {
+        Ok(FetchResult::Cached {
             releases,
-            cached_at: cached_at.unwrap_or_else(Utc::now),
-            repo_path: repo.cache_key(),
-        };
-        return Ok(Json(cached).into_response());
+            cached_at,
+        }) => {
+            if want_cache {
+                let cached = CachedReleases {
+                    releases,
+                    cached_at,
+                    repo_path: cache_key.clone(),
+                };
+                return Ok(Json(cached).into_response());
+            }
+            let html = format_releases_html(&releases, &cache_key, "forgejo", Some(cached_at));
+            Ok(Html(html).into_response())
+        }
+        Ok(FetchResult::Processing) => {
+            let html = format_processing_html(&cache_key, "forgejo");
+            Ok(Html(html).into_response())
+        }
+        Err(e) => Err(e),
     }
-
-    let html = format_releases_html(&releases, &repo.cache_key(), "forgejo", cached_at);
-    Ok(Html(html).into_response())
 }
 
-async fn get_or_fetch(
+pub enum FetchResult {
+    Cached {
+        releases: Vec<Release>,
+        cached_at: DateTime<Utc>,
+    },
+    Processing,
+}
+
+pub async fn get_or_spawn_fetch(
+    state: &Arc<AppState>,
+    repo: &RepoPath,
+) -> Result<FetchResult, (StatusCode, String)> {
+    if let Ok(Some(cached)) =
+        state
+            .cache
+            .read_cache::<CachedReleases>(&repo.host, &repo.owner, &repo.repo)
+    {
+        if !state.cache.is_expired(cached.cached_at) {
+            return Ok(FetchResult::Cached {
+                releases: cached.releases,
+                cached_at: cached.cached_at,
+            });
+        }
+    }
+
+    let cache_key = repo.cache_key();
+
+    if state.pending_repos.contains(&cache_key) {
+        return Ok(FetchResult::Processing);
+    }
+
+    state.pending_repos.insert(cache_key.clone());
+
+    let state = state.clone();
+    let repo = repo.clone();
+    tokio::spawn(async move {
+        let result = fetch_and_cache(&state, &repo).await;
+        state.pending_repos.remove(&cache_key);
+        result
+    });
+
+    Ok(FetchResult::Processing)
+}
+
+async fn fetch_and_cache(state: &Arc<AppState>, repo: &RepoPath) -> Result<()> {
+    let releases = fetch_releases(&state.client, &repo.host, &repo.owner, &repo.repo).await?;
+
+    let cached = CachedReleases {
+        releases,
+        cached_at: Utc::now(),
+        repo_path: repo.cache_key(),
+    };
+    let _ = state
+        .cache
+        .write_cache(&repo.host, &repo.owner, &repo.repo, &cached);
+    Ok(())
+}
+
+async fn fetch_blocking(
     state: &Arc<AppState>,
     repo: &RepoPath,
 ) -> Result<Vec<Release>, (StatusCode, String)> {
-    // Check cache first
     if let Ok(Some(cached)) =
         state
             .cache

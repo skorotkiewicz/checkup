@@ -6,6 +6,7 @@ use axum::{
     routing::get,
 };
 use clap::Parser;
+use dashmap::DashSet;
 use regex::Regex;
 use std::{fs, path::PathBuf, sync::Arc};
 
@@ -66,6 +67,7 @@ impl RepoPath {
 pub struct AppState {
     pub client: reqwest::Client,
     pub cache: cache::CacheManager,
+    pub pending_repos: Arc<DashSet<String>>,
 }
 
 async fn health_check() -> impl IntoResponse {
@@ -83,6 +85,7 @@ async fn main() -> Result<()> {
             .user_agent("checkup/0.1.0")
             .build()?,
         cache: cache::CacheManager::new(args.cache.clone(), args.cache_hours),
+        pending_repos: Arc::new(DashSet::new()),
     });
 
     let app = Router::new()

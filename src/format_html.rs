@@ -321,3 +321,52 @@ pub fn format_releases_html(
         releases_html
     )
 }
+
+pub fn format_processing_html(repo_path: &str, route_prefix: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>Processing - {}</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }}
+        .container {{ text-align: center; padding: 60px 20px; }}
+        .spinner {{
+            width: 50px; height: 50px;
+            border: 4px solid #e1e4e8;
+            border-top: 4px solid #0366d6;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }}
+        @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
+        h1 {{ color: #333; margin-bottom: 10px; }}
+        p {{ color: #666; font-size: 1.1em; }}
+        .refresh-btn {{
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 24px;
+            background: #0366d6;
+            color: white;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 500;
+        }}
+        .refresh-btn:hover {{ background: #0257b3; }}
+        code {{ background: #f6f8fa; padding: 2px 6px; border-radius: 4px; }}
+    </style>
+    <meta http-equiv="refresh" content="5">
+</head>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <h1>Repository Processing</h1>
+        <p>The repository <code>{}</code> is being fetched for the first time.</p>
+        <p>Please wait a few seconds... This page will auto-refresh.</p>
+        <a href="/{}/{}" class="refresh-btn">Refresh Now</a>
+    </div>
+</body>
+</html>"#,
+        repo_path, repo_path, route_prefix, repo_path
+    )
+}

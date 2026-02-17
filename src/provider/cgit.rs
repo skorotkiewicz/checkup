@@ -1,4 +1,9 @@
 use super::{Asset, Release};
+use crate::{
+    AppState, RepoPath,
+    format_html::{format_processing_html, format_releases_html, rename_to_latest},
+    provider::CachedReleases,
+};
 use anyhow::Result;
 use axum::{
     extract::{Path, State},
@@ -10,14 +15,7 @@ use reqwest::Client;
 use scraper::{Html as ScraperHtml, Selector};
 use std::sync::Arc;
 
-use crate::{
-    AppState, RepoPath,
-    format_html::{format_releases_html, rename_to_latest},
-    provider::CachedReleases,
-};
-
 pub async fn fetch_releases(client: &Client, host: &str, repo_path: &str) -> Result<Vec<Release>> {
-    // cgit repos have paths like: /pub/scm/linux/kernel/git/stable/linux.git
     let url = format!("https://{}/{}/refs/tags", host, repo_path);
 
     let response = client
@@ -36,14 +34,12 @@ pub async fn fetch_releases(client: &Client, host: &str, repo_path: &str) -> Res
 
     let mut releases = Vec::new();
 
-    // Parse cgit tags table
     let row_selector = Selector::parse("table.list tr").unwrap();
     let tag_selector = Selector::parse("td:nth-child(1) a").unwrap();
     let download_selector = Selector::parse("td:nth-child(2) a").unwrap();
     let age_selector = Selector::parse("td:nth-child(4) span, td:nth-child(5) span").unwrap();
 
     for row in document.select(&row_selector).skip(1) {
-        // Skip header row
         let tag_elem = row.select(&tag_selector).next();
         let download_elem = row.select(&download_selector).next();
 
@@ -55,14 +51,12 @@ pub async fn fetch_releases(client: &Client, host: &str, repo_path: &str) -> Res
                 continue;
             }
 
-            // Extract asset name from download URL
             let asset_name = download_url
                 .rsplit('/')
                 .next()
                 .unwrap_or(&tag_name)
                 .to_string();
 
-            // Try to parse age for published_at
             let published_at = row
                 .select(&age_selector)
                 .next()
@@ -110,7 +104,6 @@ pub async fn handler(
     Path(cgit_path): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, (StatusCode, String)> {
-    // Check if requesting latest asset redirect
     if let Some(pos) = cgit_path.rfind('/') {
         let last_segment = &cgit_path[pos + 1..];
         if last_segment.starts_with("latest") {
@@ -124,7 +117,7 @@ pub async fn handler(
                 owner: String::new(),
                 repo: parts[1].to_string(),
             };
-            let releases = get_or_fetch(&state, &repo).await?;
+            let releases = fetch_blocking(&state, &repo).await?;
 
             if let Some(latest) = releases.first() {
                 for asset in &latest.assets {
@@ -140,14 +133,12 @@ pub async fn handler(
         }
     }
 
-    // Check if requesting raw cache
     let (path_str, want_cache) = if cgit_path.ends_with("/cache") {
         (cgit_path.trim_end_matches("/cache").to_string(), true)
     } else {
         (cgit_path.clone(), false)
     };
 
-    // Parse: host/repo_path
     let parts: Vec<&str> = path_str.splitn(2, '/').collect();
     if parts.len() != 2 {
         return Err((StatusCode::BAD_REQUEST, "Invalid path format".to_string()));
@@ -157,33 +148,94 @@ pub async fn handler(
         owner: String::new(),
         repo: parts[1].to_string(),
     };
+    let cache_key = repo.cache_key();
 
-    let cached_at = state
-        .cache
-        .read_cache::<CachedReleases>(&repo.host, &repo.owner, &repo.repo)
-        .ok()
-        .flatten()
-        .map(|c| c.cached_at);
-    let releases = get_or_fetch(&state, &repo).await?;
-
-    if want_cache {
-        let cached = CachedReleases {
+    match get_or_spawn_fetch(&state, &repo).await {
+        Ok(FetchResult::Cached {
             releases,
-            cached_at: cached_at.unwrap_or_else(Utc::now),
-            repo_path: repo.cache_key(),
-        };
-        return Ok(Json(cached).into_response());
+            cached_at,
+        }) => {
+            if want_cache {
+                let cached = CachedReleases {
+                    releases,
+                    cached_at,
+                    repo_path: cache_key.clone(),
+                };
+                return Ok(Json(cached).into_response());
+            }
+            let html = format_releases_html(&releases, &cache_key, "cgit", Some(cached_at));
+            Ok(Html(html).into_response())
+        }
+        Ok(FetchResult::Processing) => {
+            let html = format_processing_html(&cache_key, "cgit");
+            Ok(Html(html).into_response())
+        }
+        Err(e) => Err(e),
     }
-
-    let html = format_releases_html(&releases, &repo.cache_key(), "cgit", cached_at);
-    Ok(Html(html).into_response())
 }
 
-async fn get_or_fetch(
+pub enum FetchResult {
+    Cached {
+        releases: Vec<Release>,
+        cached_at: DateTime<Utc>,
+    },
+    Processing,
+}
+
+pub async fn get_or_spawn_fetch(
+    state: &Arc<AppState>,
+    repo: &RepoPath,
+) -> Result<FetchResult, (StatusCode, String)> {
+    if let Ok(Some(cached)) =
+        state
+            .cache
+            .read_cache::<CachedReleases>(&repo.host, &repo.owner, &repo.repo)
+    {
+        if !state.cache.is_expired(cached.cached_at) {
+            return Ok(FetchResult::Cached {
+                releases: cached.releases,
+                cached_at: cached.cached_at,
+            });
+        }
+    }
+
+    let cache_key = repo.cache_key();
+
+    if state.pending_repos.contains(&cache_key) {
+        return Ok(FetchResult::Processing);
+    }
+
+    state.pending_repos.insert(cache_key.clone());
+
+    let state = state.clone();
+    let repo = repo.clone();
+    tokio::spawn(async move {
+        let result = fetch_and_cache(&state, &repo).await;
+        state.pending_repos.remove(&cache_key);
+        result
+    });
+
+    Ok(FetchResult::Processing)
+}
+
+async fn fetch_and_cache(state: &Arc<AppState>, repo: &RepoPath) -> Result<()> {
+    let releases = fetch_releases(&state.client, &repo.host, &repo.repo).await?;
+
+    let cached = CachedReleases {
+        releases,
+        cached_at: Utc::now(),
+        repo_path: repo.cache_key(),
+    };
+    let _ = state
+        .cache
+        .write_cache(&repo.host, &repo.owner, &repo.repo, &cached);
+    Ok(())
+}
+
+async fn fetch_blocking(
     state: &Arc<AppState>,
     repo: &RepoPath,
 ) -> Result<Vec<Release>, (StatusCode, String)> {
-    // Check cache first
     if let Ok(Some(cached)) =
         state
             .cache
