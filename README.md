@@ -7,9 +7,17 @@ A simple HTTP server for fetching and caching releases from GitHub, GitLab, Forg
   <img src="docs/intro.png" width="33%" /> 
 </p>
 
-<!--![checkup banner](docs/intro.png)-->
-
 ## Installation
+
+### Arch Linux (AUR)
+
+You can install `checkup` from the AUR using your favorite helper:
+
+```bash
+yay -S checkup
+# or
+paru -S checkup
+```
 
 ### From Source
 
