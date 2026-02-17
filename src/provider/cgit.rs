@@ -6,9 +6,10 @@ use crate::{
 };
 use anyhow::Result;
 use axum::{
+    body::Body,
     extract::{Path, State},
-    http::StatusCode,
-    response::{Html, IntoResponse, Json, Redirect, Response},
+    http::{header, StatusCode},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use chrono::{DateTime, Utc};
 use reqwest::Client;
@@ -133,8 +134,8 @@ pub async fn handler(
         }
     }
 
-    let (path_str, want_cache) = if cgit_path.ends_with("/cache") {
-        (cgit_path.trim_end_matches("/cache").to_string(), true)
+    let (path_str, want_json) = if cgit_path.ends_with("/.json") {
+        (cgit_path.trim_end_matches("/.json").to_string(), true)
     } else {
         (cgit_path.clone(), false)
     };
@@ -150,21 +151,34 @@ pub async fn handler(
     };
     let cache_key = repo.cache_key();
 
+    if want_json {
+        if let Some(json_content) = state
+            .cache
+            .read_json_raw(&repo.host, &repo.owner, &repo.repo)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        {
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json_content))
+                .unwrap());
+        }
+        return Err((StatusCode::NOT_FOUND, "No cached data available".to_string()));
+    }
+
     match get_or_spawn_fetch(&state, &repo).await {
-        Ok(FetchResult::Cached {
-            releases,
-            cached_at,
-        }) => {
-            if want_cache {
-                let cached = CachedReleases {
-                    releases,
-                    cached_at,
-                    repo_path: cache_key.clone(),
-                };
-                return Ok(Json(cached).into_response());
+        Ok(FetchResult::Cached) => {
+            if let Some(html) = state
+                .cache
+                .read_html(&repo.host, &repo.owner, &repo.repo)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            {
+                return Ok(Html(html).into_response());
             }
-            let html = format_releases_html(&releases, &cache_key, "cgit", Some(cached_at));
-            Ok(Html(html).into_response())
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to read cached HTML".to_string(),
+            ))
         }
         Ok(FetchResult::Processing) => {
             let html = format_processing_html(&cache_key, "cgit");
@@ -175,10 +189,7 @@ pub async fn handler(
 }
 
 pub enum FetchResult {
-    Cached {
-        releases: Vec<Release>,
-        cached_at: DateTime<Utc>,
-    },
+    Cached,
     Processing,
 }
 
@@ -186,16 +197,9 @@ pub async fn get_or_spawn_fetch(
     state: &Arc<AppState>,
     repo: &RepoPath,
 ) -> Result<FetchResult, (StatusCode, String)> {
-    if let Ok(Some(cached)) =
-        state
-            .cache
-            .read_cache::<CachedReleases>(&repo.host, &repo.owner, &repo.repo)
-    {
-        if !state.cache.is_expired(cached.cached_at) {
-            return Ok(FetchResult::Cached {
-                releases: cached.releases,
-                cached_at: cached.cached_at,
-            });
+    if let Ok(Some(cached_at)) = state.cache.read_timestamp(&repo.host, &repo.owner, &repo.repo) {
+        if !state.cache.is_expired(cached_at) {
+            return Ok(FetchResult::Cached);
         }
     }
 
@@ -220,15 +224,21 @@ pub async fn get_or_spawn_fetch(
 
 async fn fetch_and_cache(state: &Arc<AppState>, repo: &RepoPath) -> Result<()> {
     let releases = fetch_releases(&state.client, &repo.host, &repo.repo).await?;
+    let cached_at = Utc::now();
+    let cache_key = repo.cache_key();
 
     let cached = CachedReleases {
-        releases,
-        cached_at: Utc::now(),
-        repo_path: repo.cache_key(),
+        releases: releases.clone(),
+        cached_at,
+        repo_path: cache_key.clone(),
     };
-    let _ = state
-        .cache
-        .write_cache(&repo.host, &repo.owner, &repo.repo, &cached);
+
+    let html = format_releases_html(&releases, &cache_key, "cgit", Some(cached_at));
+
+    state.cache.write_timestamp(&repo.host, &repo.owner, &repo.repo)?;
+    state.cache.write_json(&repo.host, &repo.owner, &repo.repo, &cached)?;
+    state.cache.write_html(&repo.host, &repo.owner, &repo.repo, &html)?;
+
     Ok(())
 }
 
@@ -236,13 +246,15 @@ async fn fetch_blocking(
     state: &Arc<AppState>,
     repo: &RepoPath,
 ) -> Result<Vec<Release>, (StatusCode, String)> {
-    if let Ok(Some(cached)) =
-        state
-            .cache
-            .read_cache::<CachedReleases>(&repo.host, &repo.owner, &repo.repo)
-    {
-        if !state.cache.is_expired(cached.cached_at) {
-            return Ok(cached.releases);
+    if let Ok(Some(cached_at)) = state.cache.read_timestamp(&repo.host, &repo.owner, &repo.repo) {
+        if !state.cache.is_expired(cached_at) {
+            if let Some(cached) = state
+                .cache
+                .read_json::<CachedReleases>(&repo.host, &repo.owner, &repo.repo)
+                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            {
+                return Ok(cached.releases);
+            }
         }
     }
 
@@ -250,13 +262,20 @@ async fn fetch_blocking(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    let cached_at = Utc::now();
+    let cache_key = repo.cache_key();
+
     let cached = CachedReleases {
         releases: releases.clone(),
-        cached_at: Utc::now(),
-        repo_path: repo.cache_key(),
+        cached_at,
+        repo_path: cache_key.clone(),
     };
-    let _ = state
-        .cache
-        .write_cache(&repo.host, &repo.owner, &repo.repo, &cached);
+
+    let html = format_releases_html(&releases, &cache_key, "cgit", Some(cached_at));
+
+    let _ = state.cache.write_timestamp(&repo.host, &repo.owner, &repo.repo);
+    let _ = state.cache.write_json(&repo.host, &repo.owner, &repo.repo, &cached);
+    let _ = state.cache.write_html(&repo.host, &repo.owner, &repo.repo, &html);
+
     Ok(releases)
 }

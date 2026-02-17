@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use serde::de::DeserializeOwned;
-use std::{fs, path::PathBuf, time::SystemTime};
+use std::{fs, path::PathBuf};
 
 #[derive(Clone)]
 pub struct CacheManager {
@@ -17,7 +17,7 @@ impl CacheManager {
         }
     }
 
-    pub fn get_cache_path(&self, host: &str, owner: &str, repo: &str) -> PathBuf {
+    pub fn get_repo_dir(&self, host: &str, owner: &str, repo: &str) -> PathBuf {
         self.cache_dir
             .join("repo")
             .join(host)
@@ -25,67 +25,105 @@ impl CacheManager {
             .join(repo)
     }
 
-    pub fn read_cache<T: DeserializeOwned>(
+    pub fn read_timestamp(
+        &self,
+        host: &str,
+        owner: &str,
+        repo: &str,
+    ) -> Result<Option<DateTime<Utc>>> {
+        let repo_dir = self.get_repo_dir(host, owner, repo);
+        let current_file = repo_dir.join(".current");
+
+        if !current_file.exists() {
+            return Ok(None);
+        }
+
+        let content = fs::read_to_string(&current_file).context("Failed to read .current file")?;
+        let timestamp = DateTime::parse_from_rfc3339(content.trim())
+            .context("Failed to parse timestamp")?
+            .with_timezone(&Utc);
+
+        Ok(Some(timestamp))
+    }
+
+    pub fn write_timestamp(&self, host: &str, owner: &str, repo: &str) -> Result<()> {
+        let repo_dir = self.get_repo_dir(host, owner, repo);
+        fs::create_dir_all(&repo_dir)?;
+
+        let current_file = repo_dir.join(".current");
+        let timestamp = Utc::now().to_rfc3339();
+        fs::write(&current_file, timestamp)?;
+
+        Ok(())
+    }
+
+    pub fn read_json<T: DeserializeOwned>(
         &self,
         host: &str,
         owner: &str,
         repo: &str,
     ) -> Result<Option<T>> {
-        let cache_dir = self.get_cache_path(host, owner, repo);
+        let repo_dir = self.get_repo_dir(host, owner, repo);
+        let json_file = repo_dir.join(".json");
 
-        if !cache_dir.exists() {
+        if !json_file.exists() {
             return Ok(None);
         }
 
-        let entries: Vec<_> = fs::read_dir(&cache_dir)
-            .context("Failed to read cache directory")?
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                e.path()
-                    .extension()
-                    .map(|ext| ext == "json")
-                    .unwrap_or(false)
-            })
-            .collect();
+        let content = fs::read_to_string(&json_file).context("Failed to read .json file")?;
+        let data: T = serde_json::from_str(&content).context("Failed to parse .json file")?;
 
-        if entries.is_empty() {
-            return Ok(None);
-        }
-
-        // Get the most recent cache file
-        let latest = entries.into_iter().max_by_key(|e| {
-            e.metadata()
-                .and_then(|m| m.modified())
-                .unwrap_or(SystemTime::UNIX_EPOCH)
-        });
-
-        if let Some(entry) = latest {
-            let content = fs::read_to_string(entry.path())?;
-            let cached: T = serde_json::from_str(&content)?;
-
-            // Check if cache is expired by looking at the cached_at field
-            // This is handled by the caller since T is generic
-            return Ok(Some(cached));
-        }
-
-        Ok(None)
+        Ok(Some(data))
     }
 
-    pub fn write_cache<T: serde::Serialize>(
+    pub fn read_json_raw(&self, host: &str, owner: &str, repo: &str) -> Result<Option<String>> {
+        let repo_dir = self.get_repo_dir(host, owner, repo);
+        let json_file = repo_dir.join(".json");
+
+        if !json_file.exists() {
+            return Ok(None);
+        }
+
+        let content = fs::read_to_string(&json_file).context("Failed to read .json file")?;
+        Ok(Some(content))
+    }
+
+    pub fn write_json<T: serde::Serialize>(
         &self,
         host: &str,
         owner: &str,
         repo: &str,
         data: &T,
     ) -> Result<()> {
-        let cache_dir = self.get_cache_path(host, owner, repo);
-        fs::create_dir_all(&cache_dir)?;
+        let repo_dir = self.get_repo_dir(host, owner, repo);
+        fs::create_dir_all(&repo_dir)?;
 
-        let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
-        let cache_file = cache_dir.join(format!("cache-{}.json", timestamp));
-
+        let json_file = repo_dir.join(".json");
         let content = serde_json::to_string_pretty(data)?;
-        fs::write(&cache_file, content)?;
+        fs::write(&json_file, content)?;
+
+        Ok(())
+    }
+
+    pub fn read_html(&self, host: &str, owner: &str, repo: &str) -> Result<Option<String>> {
+        let repo_dir = self.get_repo_dir(host, owner, repo);
+        let html_file = repo_dir.join("index.html");
+
+        if !html_file.exists() {
+            return Ok(None);
+        }
+
+        let content = fs::read_to_string(&html_file).context("Failed to read index.html file")?;
+
+        Ok(Some(content))
+    }
+
+    pub fn write_html(&self, host: &str, owner: &str, repo: &str, html: &str) -> Result<()> {
+        let repo_dir = self.get_repo_dir(host, owner, repo);
+        fs::create_dir_all(&repo_dir)?;
+
+        let html_file = repo_dir.join("index.html");
+        fs::write(&html_file, html)?;
 
         Ok(())
     }
