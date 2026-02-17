@@ -67,7 +67,7 @@ pub fn format_releases_html(
                     } else {
                         String::new()
                     };
-                    let icon = icons::get_file_icon(&a.name);
+                    let icon = icons::get_file_icon(&a.name, 18);
                     let extension = extract_extension(&a.name);
                     let path_for_url = if route_prefix == "github" || route_prefix == "gitlab" {
                         // Strip the host part (e.g., "github.com/owner/repo" -> "owner/repo")
@@ -86,7 +86,7 @@ pub fn format_releases_html(
                                 <a href="{}" style="background: #28a745; color: white; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;">{} Download</a>
                             </div>
                         </div>"#,
-                        icon, a.url, a.name, size_info, latest_url, icons::DOWNLOAD
+                        icon, a.url, a.name, size_info, latest_url, icons::DOWNLOAD(16)
                     )
                 })
                 .collect::<Vec<_>>()
@@ -95,13 +95,13 @@ pub fn format_releases_html(
             let version_name = latest.name.as_ref().unwrap_or(&latest.tag_name);
             format!(
                 r#"<div style="margin-bottom: 30px; padding: 20px; background: linear-gradient(135deg, #f0fff4 0%, #e6ffed 100%); border: 2px solid #28a745; border-radius: 12px;">
-                    <h2 style="margin: 0 0 5px 0; color: #28a745; display: flex; align-items: center; gap: 6px;">{} Latest Release: {}</h2>
+                    <h2 style="margin: 0 0 5px 0; color: #28a745; display: flex; align-items: center; gap: 6px; font-size: 1.2em;">{} Latest Release: {}</h2>
                     <p style="margin: 0 0 15px 0; color: #666; font-size: 0.9em;">Published: {} • {} files</p>
                     <div>
                         {}
                     </div>
                 </div>"#,
-                icons::STAR,
+                icons::STAR(16),
                 version_name,
                 latest.published_at.format("%Y-%m-%d %H:%M:%S UTC"),
                 latest.assets.len(),
@@ -119,7 +119,7 @@ pub fn format_releases_html(
         .enumerate()
         .map(|(idx, r)| {
             let latest_badge = if idx == 0 {
-                &format!(r#" <span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.8em; font-weight: bold; display: inline-flex; align-items: center; gap: 4px;">{} Latest</span>"#, icons::STAR)
+                &format!(r#" <span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.8em; font-weight: bold; display: inline-flex; align-items: center; gap: 4px;">{} Latest</span>"#, icons::STAR(12))
             } else {
                 ""
             };
@@ -147,18 +147,18 @@ pub fn format_releases_html(
                             String::new()
                         };
                         let download_info = if a.download_count > 0 {
-                            format!(" <span style='color: #28a745; display: inline-flex; align-items: center; gap: 2px;'>{} {}</span>", icons::DOWNLOAD, a.download_count)
+                            format!(" <span style='color: #28a745; display: inline-flex; align-items: center; gap: 2px;'>{} {}</span>", icons::DOWNLOAD(16), a.download_count)
                         } else {
                             String::new()
                         };
-                        let icon = icons::get_file_icon(&a.name);
+                        let icon = icons::get_file_icon(&a.name, 16);
                         format!(
                             r#"<div style="padding: 8px; color: #777; margin: 4px 0; background: #fff; border: 1px solid #e1e4e8; border-radius: 6px; display: flex; align-items: center; gap: 6px;">
                                 <span style="display: flex; flex-shrink: 0;">{}</span>
                                 <a href="{}" style="font-weight: 500; color: #0366d6;">{}</a>{}{}
                             </div>"#,
                             icon, a.url, a.name, size_info, download_info
-                        )                        
+                        )
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
@@ -170,7 +170,7 @@ pub fn format_releases_html(
                             {}
                         </div>
                     </div>"#,
-                    icons::PACKAGE,
+                    icons::PACKAGE(16),
                     r.assets.len(),
                     assets_list
                 )
@@ -187,7 +187,7 @@ pub fn format_releases_html(
                             <summary style="cursor: pointer; color: #777; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;">{} Show release notes</summary>
                             <div style="margin-top: 10px; padding: 10px; background: #f6f8fa; border-radius: 6px; white-space: pre-wrap; font-size: 0.9em;">{}</div>
                         </details>"#,
-                        icons::NOTE, body_preview
+                        icons::NOTE(16), body_preview
                     )
                 } else {
                     String::new()
@@ -210,7 +210,7 @@ pub fn format_releases_html(
                 latest_badge,
                 prerelease_badge,
                 draft_badge,
-                icons::CALENDAR,
+                icons::CALENDAR(16),
                 r.published_at.format("%Y-%m-%d %H:%M:%S UTC"),
                 assets_html,
                 body_html
@@ -250,7 +250,7 @@ pub fn format_releases_html(
         repo_path,
         cache_info,
         latest_assets_box,
-        icons::NOTE,
+        icons::NOTE(18),
         releases_html
     )
 }
