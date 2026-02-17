@@ -114,7 +114,7 @@ Same as GitHub endpoint - HTML page with releases.
 
 ---
 
-### GET /github/{owner}/{repo}/cache
+### GET /github/{owner}/{repo}/.json
 
 Get cached releases as JSON. If cache doesn't exist or is expired, fetches fresh data from the API.
 
@@ -306,7 +306,7 @@ curl -L -o app.tar.gz http://localhost:3000/github/owner/repo/latest.tar.gz
 
 ```bash
 # Get all releases as JSON
-curl http://localhost:3000/github/owner/repo/cache | jq '.releases[0]'
+curl http://localhost:3000/github/owner/repo/.json | jq '.releases[0]'
 ```
 
 ### Use in CI/CD

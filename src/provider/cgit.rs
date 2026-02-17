@@ -1,14 +1,16 @@
 use super::{Asset, Release};
 use crate::{
     AppState, RepoPath,
-    format_html::{format_error_html, format_processing_html, format_releases_html, rename_to_latest},
+    format_html::{
+        format_error_html, format_processing_html, format_releases_html, rename_to_latest,
+    },
     provider::CachedReleases,
 };
 use anyhow::Result;
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
 };
 use chrono::{DateTime, Utc};
@@ -163,7 +165,10 @@ pub async fn handler(
                 .body(Body::from(json_content))
                 .unwrap());
         }
-        return Err((StatusCode::NOT_FOUND, "No cached data available".to_string()));
+        return Err((
+            StatusCode::NOT_FOUND,
+            "No cached data available".to_string(),
+        ));
     }
 
     match get_or_spawn_fetch(&state, &repo).await {
@@ -202,7 +207,10 @@ pub async fn get_or_spawn_fetch(
     state: &Arc<AppState>,
     repo: &RepoPath,
 ) -> Result<FetchResult, (StatusCode, String)> {
-    if let Ok(Some(cached_at)) = state.cache.read_timestamp(&repo.host, &repo.owner, &repo.repo) {
+    if let Ok(Some(cached_at)) = state
+        .cache
+        .read_timestamp(&repo.host, &repo.owner, &repo.repo)
+    {
         if !state.cache.is_expired(cached_at) {
             return Ok(FetchResult::Cached);
         }
@@ -246,9 +254,15 @@ async fn fetch_and_cache(state: &Arc<AppState>, repo: &RepoPath) -> Result<()> {
 
     let html = format_releases_html(&releases, &cache_key, "cgit", Some(cached_at));
 
-    state.cache.write_timestamp(&repo.host, &repo.owner, &repo.repo)?;
-    state.cache.write_json(&repo.host, &repo.owner, &repo.repo, &cached)?;
-    state.cache.write_html(&repo.host, &repo.owner, &repo.repo, &html)?;
+    state
+        .cache
+        .write_timestamp(&repo.host, &repo.owner, &repo.repo)?;
+    state
+        .cache
+        .write_json(&repo.host, &repo.owner, &repo.repo, &cached)?;
+    state
+        .cache
+        .write_html(&repo.host, &repo.owner, &repo.repo, &html)?;
 
     state.failed_repos.remove(&cache_key);
 
@@ -259,7 +273,10 @@ async fn fetch_blocking(
     state: &Arc<AppState>,
     repo: &RepoPath,
 ) -> Result<Vec<Release>, (StatusCode, String)> {
-    if let Ok(Some(cached_at)) = state.cache.read_timestamp(&repo.host, &repo.owner, &repo.repo) {
+    if let Ok(Some(cached_at)) = state
+        .cache
+        .read_timestamp(&repo.host, &repo.owner, &repo.repo)
+    {
         if !state.cache.is_expired(cached_at) {
             if let Some(cached) = state
                 .cache
@@ -286,9 +303,15 @@ async fn fetch_blocking(
 
     let html = format_releases_html(&releases, &cache_key, "cgit", Some(cached_at));
 
-    let _ = state.cache.write_timestamp(&repo.host, &repo.owner, &repo.repo);
-    let _ = state.cache.write_json(&repo.host, &repo.owner, &repo.repo, &cached);
-    let _ = state.cache.write_html(&repo.host, &repo.owner, &repo.repo, &html);
+    let _ = state
+        .cache
+        .write_timestamp(&repo.host, &repo.owner, &repo.repo);
+    let _ = state
+        .cache
+        .write_json(&repo.host, &repo.owner, &repo.repo, &cached);
+    let _ = state
+        .cache
+        .write_html(&repo.host, &repo.owner, &repo.repo, &html);
 
     Ok(releases)
 }

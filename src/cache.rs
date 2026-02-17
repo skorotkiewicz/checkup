@@ -64,27 +64,27 @@ impl CacheManager {
         repo: &str,
     ) -> Result<Option<T>> {
         let repo_dir = self.get_repo_dir(host, owner, repo);
-        let json_file = repo_dir.join(".json");
+        let json_file = repo_dir.join("cache.json");
 
         if !json_file.exists() {
             return Ok(None);
         }
 
-        let content = fs::read_to_string(&json_file).context("Failed to read .json file")?;
-        let data: T = serde_json::from_str(&content).context("Failed to parse .json file")?;
+        let content = fs::read_to_string(&json_file).context("Failed to read cache.json file")?;
+        let data: T = serde_json::from_str(&content).context("Failed to parse cache.json file")?;
 
         Ok(Some(data))
     }
 
     pub fn read_json_raw(&self, host: &str, owner: &str, repo: &str) -> Result<Option<String>> {
         let repo_dir = self.get_repo_dir(host, owner, repo);
-        let json_file = repo_dir.join(".json");
+        let json_file = repo_dir.join("cache.json");
 
         if !json_file.exists() {
             return Ok(None);
         }
 
-        let content = fs::read_to_string(&json_file).context("Failed to read .json file")?;
+        let content = fs::read_to_string(&json_file).context("Failed to read cache.json file")?;
         Ok(Some(content))
     }
 
@@ -98,7 +98,7 @@ impl CacheManager {
         let repo_dir = self.get_repo_dir(host, owner, repo);
         fs::create_dir_all(&repo_dir)?;
 
-        let json_file = repo_dir.join(".json");
+        let json_file = repo_dir.join("cache.json");
         let content = serde_json::to_string_pretty(data)?;
         fs::write(&json_file, content)?;
 
