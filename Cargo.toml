@@ -1,7 +1,7 @@
 [package]
 name = "checkup"
-version = "0.1.1"
-edition = "2021"
+version = "0.1.2"
+edition = "2024"
 
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }
@@ -20,3 +20,12 @@ regex = "1.10"
 url = "2.5"
 scraper = "0.19"
 openssl = { version = "0.10", features = ["vendored"] }
+
+[profile.release]
+opt-level = 3          # Maximum optimizations
+debug = false          # No debug info (smaller binary)
+lto = "fat"            # Link‑time optimization
+codegen-units = 1      # Better optimization, slower compile
+panic = "abort"        # Smaller binary, no unwind tables
+incremental = false    # Disable incremental compilation
+strip = true           # Remove symbol table (requires Rust 1.71+)
