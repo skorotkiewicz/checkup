@@ -1,3 +1,4 @@
+use crate::icons;
 use crate::provider::Release;
 use chrono::{DateTime, Utc};
 
@@ -66,25 +67,7 @@ pub fn format_releases_html(
                     } else {
                         String::new()
                     };
-                    let icon = if a.name.ends_with(".exe") || a.name.ends_with(".msi") {
-                        "🪟"
-                    } else if a.name.ends_with(".deb") || a.name.ends_with(".rpm") {
-                        "🐧"
-                    } else if a.name.ends_with(".dmg") || a.name.contains("darwin") || a.name.contains("macos") {
-                        "🍎"
-                    } else if a.name.ends_with(".AppImage") {
-                        "📦"
-                    } else if a.name.ends_with(".tar.gz") || a.name.ends_with(".tgz") {
-                        "🗜️"
-                    } else if a.name.ends_with(".zip") {
-                        "🗜️"
-                    } else if a.name.ends_with(".jar") {
-                        "☕"
-                    } else if a.name.contains("source") || a.name.contains("src") {
-                        "📄"
-                    } else {
-                        "📎"
-                    };
+                    let icon = icons::get_file_icon(&a.name);
                     let extension = extract_extension(&a.name);
                     let path_for_url = if route_prefix == "github" || route_prefix == "gitlab" {
                         // Strip the host part (e.g., "github.com/owner/repo" -> "owner/repo")
@@ -97,13 +80,13 @@ pub fn format_releases_html(
 
                     let latest_url = format!("/{}/{}/latest.{}", route_prefix, path_for_url, extension);
                     format!(
-                        r#"<div style="padding: 10px; margin: 6px 0; background: #fff; border: 1px solid #28a745; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+                        r#"<div style="padding: 10px; margin: 6px 0; color: #777; background: #fff; border: 1px solid #28a745; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
                             <div>{} <a href="{}" style="font-weight: 600; color: #0366d6; font-size: 1.05em;">{}</a>{}</div>
                             <div>
-                                <a href="{}" style="background: #28a745; color: white; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: 500;">⬇ Download</a>
+                                <a href="{}" style="background: #28a745; color: white; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;">{} Download</a>
                             </div>
                         </div>"#,
-                        icon, a.url, a.name, size_info, latest_url
+                        icon, a.url, a.name, size_info, latest_url, icons::DOWNLOAD
                     )
                 })
                 .collect::<Vec<_>>()
@@ -112,12 +95,13 @@ pub fn format_releases_html(
             let version_name = latest.name.as_ref().unwrap_or(&latest.tag_name);
             format!(
                 r#"<div style="margin-bottom: 30px; padding: 20px; background: linear-gradient(135deg, #f0fff4 0%, #e6ffed 100%); border: 2px solid #28a745; border-radius: 12px;">
-                    <h2 style="margin: 0 0 5px 0; color: #28a745;">⭐ Latest Release: {}</h2>
+                    <h2 style="margin: 0 0 5px 0; color: #28a745; display: flex; align-items: center; gap: 6px;">{} Latest Release: {}</h2>
                     <p style="margin: 0 0 15px 0; color: #666; font-size: 0.9em;">Published: {} • {} files</p>
                     <div>
                         {}
                     </div>
                 </div>"#,
+                icons::STAR,
                 version_name,
                 latest.published_at.format("%Y-%m-%d %H:%M:%S UTC"),
                 latest.assets.len(),
@@ -135,7 +119,7 @@ pub fn format_releases_html(
         .enumerate()
         .map(|(idx, r)| {
             let latest_badge = if idx == 0 {
-                r#" <span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.8em; font-weight: bold;">⭐ Latest</span>"#
+                &format!(r#" <span style="background: #28a745; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.8em; font-weight: bold; display: inline-flex; align-items: center; gap: 4px;">{} Latest</span>"#, icons::STAR)
             } else {
                 ""
             };
@@ -163,31 +147,13 @@ pub fn format_releases_html(
                             String::new()
                         };
                         let download_info = if a.download_count > 0 {
-                            format!(" <span style='color: #28a745;'>⬇ {}</span>", a.download_count)
+                            format!(" <span style='color: #28a745; display: inline-flex; align-items: center; gap: 2px;'>{} {}</span>", icons::DOWNLOAD, a.download_count)
                         } else {
                             String::new()
                         };
-                        let icon = if a.name.ends_with(".exe") || a.name.ends_with(".msi") {
-                            "🪟"
-                        } else if a.name.ends_with(".deb") || a.name.ends_with(".rpm") {
-                            "🐧"
-                        } else if a.name.ends_with(".dmg") || a.name.contains("darwin") || a.name.contains("macos") {
-                            "🍎"
-                        } else if a.name.ends_with(".AppImage") {
-                            "📦"
-                        } else if a.name.ends_with(".tar.gz") || a.name.ends_with(".tgz") {
-                            "🗜️"
-                        } else if a.name.ends_with(".zip") {
-                            "🗜️"
-                        } else if a.name.ends_with(".jar") {
-                            "☕"
-                        } else if a.name.contains("source") || a.name.contains("src") {
-                            "📄"
-                        } else {
-                            "📎"
-                        };
+                        let icon = icons::get_file_icon(&a.name);
                         format!(
-                            r#"<div style="padding: 8px; margin: 4px 0; background: #fff; border: 1px solid #e1e4e8; border-radius: 6px;">
+                            r#"<div style="padding: 8px; color: #777; margin: 4px 0; background: #fff; border: 1px solid #e1e4e8; border-radius: 6px;">
                                 {} <a href="{}" style="font-weight: 500; color: #0366d6;">{}</a>{}{}
                             </div>"#,
                             icon, a.url, a.name, size_info, download_info
@@ -198,11 +164,12 @@ pub fn format_releases_html(
 
                 format!(
                     r#"<div style="margin: 15px 0;">
-                        <strong style="font-size: 1.1em;">📦 Downloads ({} files):</strong>
+                        <strong style="font-size: 1.1em; display: inline-flex; align-items: center; gap: 4px;">{} Downloads ({} files):</strong>
                         <div style="margin-top: 8px;">
                             {}
                         </div>
                     </div>"#,
+                    icons::PACKAGE,
                     r.assets.len(),
                     assets_list
                 )
@@ -216,10 +183,10 @@ pub fn format_releases_html(
                     let body_preview = body.lines().take(3).collect::<Vec<_>>().join("<br>");
                     format!(
                         r#"<details style="margin-top: 10px;">
-                            <summary style="cursor: pointer; color: #0366d6; font-weight: 500;">📝 Show release notes</summary>
+                            <summary style="cursor: pointer; color: #777; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;">{} Show release notes</summary>
                             <div style="margin-top: 10px; padding: 10px; background: #f6f8fa; border-radius: 6px; white-space: pre-wrap; font-size: 0.9em;">{}</div>
                         </details>"#,
-                        body_preview
+                        icons::NOTE, body_preview
                     )
                 } else {
                     String::new()
@@ -233,7 +200,7 @@ pub fn format_releases_html(
                     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
                         <strong style="font-size: 1.3em;"><a href="{}" target="_blank" style="color: #0366d6;">{}</a></strong>{}{}{}
                     </div>
-                    <small style="color: #586069;">📅 Published: {}</small>
+                    <small style="color: #586069; display: inline-flex; align-items: center; gap: 4px;">{} Published: {}</small>
                     {}
                     {}
                 </li>"#,
@@ -242,6 +209,7 @@ pub fn format_releases_html(
                 latest_badge,
                 prerelease_badge,
                 draft_badge,
+                icons::CALENDAR,
                 r.published_at.format("%Y-%m-%d %H:%M:%S UTC"),
                 assets_html,
                 body_html
@@ -271,12 +239,17 @@ pub fn format_releases_html(
     <h1>Releases for {}</h1>
     {}
     {}
-    <h2 style="margin-top: 30px; color: #333;">📋 All Releases</h2>
+    <h2 style="margin-top: 30px; color: #333; display: flex; align-items: center; gap: 6px;">{} All Releases</h2>
     <ul>
         {}
     </ul>
 </body>
 </html>"#,
-        repo_path, repo_path, cache_info, latest_assets_box, releases_html
+        repo_path,
+        repo_path,
+        cache_info,
+        latest_assets_box,
+        icons::NOTE,
+        releases_html
     )
 }

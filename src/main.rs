@@ -11,6 +11,7 @@ use std::{fs, path::PathBuf, sync::Arc};
 
 mod cache;
 mod format_html;
+mod icons;
 mod provider;
 
 #[derive(Parser, Debug)]
