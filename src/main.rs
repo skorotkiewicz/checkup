@@ -16,7 +16,7 @@ mod provider;
 
 #[derive(Parser, Debug)]
 #[command(name = "checkup")]
-#[command(about = "HTTP server for caching and serving repository releases", long_about = None)]
+#[command(about = "HTTP server for caching and serving repository releases", version, long_about = None)]
 struct Args {
     /// Cache directory path
     #[arg(short, long, default_value = "data/cache")]
