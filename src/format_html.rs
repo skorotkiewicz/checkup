@@ -81,7 +81,7 @@ pub fn format_releases_html(
                     let latest_url = format!("/{}/{}/latest.{}", route_prefix, path_for_url, extension);
                     format!(
                         r#"<div style="padding: 10px; margin: 6px 0; color: #777; background: #fff; border: 1px solid #28a745; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
-                            <div>{} <a href="{}" style="font-weight: 600; color: #0366d6; font-size: 1.05em;">{}</a>{}</div>
+                            <div style="display: flex; align-items: center; gap: 6px;"><span style="display: flex; flex-shrink: 0;">{}</span> <a href="{}" style="font-weight: 600; color: #0366d6; font-size: 1.05em;">{}</a>{}</div>
                             <div>
                                 <a href="{}" style="background: #28a745; color: white; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;">{} Download</a>
                             </div>
@@ -153,11 +153,12 @@ pub fn format_releases_html(
                         };
                         let icon = icons::get_file_icon(&a.name);
                         format!(
-                            r#"<div style="padding: 8px; color: #777; margin: 4px 0; background: #fff; border: 1px solid #e1e4e8; border-radius: 6px;">
-                                {} <a href="{}" style="font-weight: 500; color: #0366d6;">{}</a>{}{}
+                            r#"<div style="padding: 8px; color: #777; margin: 4px 0; background: #fff; border: 1px solid #e1e4e8; border-radius: 6px; display: flex; align-items: center; gap: 6px;">
+                                <span style="display: flex; flex-shrink: 0;">{}</span>
+                                <a href="{}" style="font-weight: 500; color: #0366d6;">{}</a>{}{}
                             </div>"#,
                             icon, a.url, a.name, size_info, download_info
-                        )
+                        )                        
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
