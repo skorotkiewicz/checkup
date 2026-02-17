@@ -1,6 +1,6 @@
 # Checkup - Repository Release Tracker
 
-A simple HTTP server for fetching and caching releases from GitHub and GitLab repositories with parallel processing support.
+A simple HTTP server for fetching and caching releases from GitHub and GitLab repositories
 
 ## Installation
 

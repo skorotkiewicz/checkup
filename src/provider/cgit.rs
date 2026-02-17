@@ -1,0 +1,95 @@
+use super::{Asset, Release};
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use reqwest::Client;
+use scraper::{Html, Selector};
+
+pub async fn fetch_releases(client: &Client, host: &str, repo_path: &str) -> Result<Vec<Release>> {
+    // cgit repos have paths like: /pub/scm/linux/kernel/git/stable/linux.git
+    let url = format!("https://{}/{}/refs/tags", host, repo_path);
+
+    let response = client
+        .get(&url)
+        .header("Accept", "text/html")
+        .header("User-Agent", "checkup/0.1.0")
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        anyhow::bail!("cgit ({}) returned status: {}", host, response.status());
+    }
+
+    let html = response.text().await?;
+    let document = Html::parse_document(&html);
+
+    let mut releases = Vec::new();
+
+    // Parse cgit tags table
+    let row_selector = Selector::parse("table.list tr").unwrap();
+    let tag_selector = Selector::parse("td:nth-child(1) a").unwrap();
+    let download_selector = Selector::parse("td:nth-child(2) a").unwrap();
+    let age_selector = Selector::parse("td:nth-child(4) span, td:nth-child(5) span").unwrap();
+
+    for row in document.select(&row_selector).skip(1) {
+        // Skip header row
+        let tag_elem = row.select(&tag_selector).next();
+        let download_elem = row.select(&download_selector).next();
+
+        if let (Some(tag_elem), Some(download_elem)) = (tag_elem, download_elem) {
+            let tag_name = tag_elem.text().collect::<String>().trim().to_string();
+            let download_url = download_elem.value().attr("href").unwrap_or("").to_string();
+
+            if tag_name.is_empty() || download_url.is_empty() {
+                continue;
+            }
+
+            // Extract asset name from download URL
+            let asset_name = download_url
+                .rsplit('/')
+                .next()
+                .unwrap_or(&tag_name)
+                .to_string();
+
+            // Try to parse age for published_at
+            let published_at = row
+                .select(&age_selector)
+                .next()
+                .and_then(|el| {
+                    el.value()
+                        .attr("title")
+                        .and_then(|t| DateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S %z").ok())
+                        .map(|dt| dt.with_timezone(&Utc))
+                })
+                .unwrap_or_else(Utc::now);
+
+            let full_download_url = if download_url.starts_with("http") {
+                download_url
+            } else {
+                format!("https://{}{}", host, download_url)
+            };
+
+            let html_url = format!("https://{}/{}/tag/?h={}", host, repo_path, tag_name);
+
+            releases.push(Release {
+                tag_name: tag_name.clone(),
+                name: Some(tag_name.clone()),
+                published_at,
+                html_url,
+                body: None,
+                prerelease: false,
+                draft: false,
+                assets: vec![Asset {
+                    name: asset_name,
+                    url: full_download_url,
+                    content_type: Some("application/gzip".to_string()),
+                    size: 0,
+                    download_count: 0,
+                }],
+                source_tarball: None,
+                source_zipball: None,
+            });
+        }
+    }
+
+    Ok(releases)
+}
