@@ -1,9 +1,9 @@
 use anyhow::Result;
 use axum::{
+    Router,
     http::StatusCode,
     response::{Html, IntoResponse},
     routing::get,
-    Router,
 };
 use clap::Parser;
 use regex::Regex;

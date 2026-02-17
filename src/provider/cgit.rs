@@ -11,9 +11,9 @@ use scraper::{Html as ScraperHtml, Selector};
 use std::sync::Arc;
 
 use crate::{
+    AppState, RepoPath,
     format_html::{extract_extension, format_releases_html},
     provider::CachedReleases,
-    AppState, RepoPath,
 };
 
 pub async fn fetch_releases(client: &Client, host: &str, repo_path: &str) -> Result<Vec<Release>> {

@@ -11,9 +11,9 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::{
+    AppState, RepoPath,
     format_html::{extract_extension, format_releases_html},
     provider::CachedReleases,
-    AppState, RepoPath,
 };
 
 #[derive(Debug, Deserialize)]
