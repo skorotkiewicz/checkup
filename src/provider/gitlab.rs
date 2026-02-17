@@ -1,8 +1,19 @@
 use super::{Asset, Release};
 use anyhow::Result;
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::{Html, IntoResponse, Json, Redirect, Response},
+};
 use chrono::{DateTime, Utc};
 use reqwest::Client;
 use serde::Deserialize;
+use std::sync::Arc;
+
+use crate::{
+    format_html::{extract_extension, format_releases_html},
+    AppState, RepoPath,
+};
 
 #[derive(Debug, Deserialize)]
 struct GitLabRelease {
@@ -109,4 +120,77 @@ pub async fn fetch_releases(client: &Client, owner: &str, repo: &str) -> Result<
             }
         })
         .collect())
+}
+
+pub async fn handler(
+    Path(repo_path): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Response, (StatusCode, String)> {
+    // Check if requesting latest asset redirect
+    if let Some(pos) = repo_path.rfind("/latest.") {
+        let extension = &repo_path[pos + 8..];
+        let repo_part = &repo_path[..pos];
+        let repo =
+            RepoPath::parse(repo_part).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+        let releases = get_or_fetch(&state, &repo).await?;
+
+        if let Some(latest) = releases.first() {
+            for asset in &latest.assets {
+                let asset_ext = extract_extension(&asset.name);
+                if asset_ext == extension {
+                    return Ok(Redirect::temporary(&asset.url).into_response());
+                }
+            }
+        }
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("No asset with extension '{}' found", extension),
+        ));
+    }
+
+    // Check if requesting raw cache
+    let (path_str, want_cache) = if repo_path.ends_with("/cache") {
+        (repo_path.trim_end_matches("/cache").to_string(), true)
+    } else {
+        (repo_path.clone(), false)
+    };
+
+    let repo = RepoPath::parse(&path_str).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+    let cached_at = state
+        .cache
+        .read_cache(&repo)
+        .ok()
+        .flatten()
+        .map(|c| c.cached_at);
+    let releases = get_or_fetch(&state, &repo).await?;
+
+    if want_cache {
+        let cached = super::CachedReleases {
+            releases,
+            cached_at: cached_at.unwrap_or_else(Utc::now),
+            repo_path: repo.cache_key(),
+        };
+        return Ok(Json(cached).into_response());
+    }
+
+    let html = format_releases_html(&releases, &repo.cache_key(), "gitlab", cached_at);
+    Ok(Html(html).into_response())
+}
+
+async fn get_or_fetch(
+    state: &Arc<AppState>,
+    repo: &RepoPath,
+) -> Result<Vec<Release>, (StatusCode, String)> {
+    // Check cache first
+    if let Ok(Some(cached)) = state.cache.read_cache(repo) {
+        return Ok(cached.releases);
+    }
+
+    let releases = fetch_releases(&state.client, &repo.owner, &repo.repo)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let _ = state.cache.write_cache(repo, releases.clone());
+    Ok(releases)
 }

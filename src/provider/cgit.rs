@@ -1,8 +1,19 @@
 use super::{Asset, Release};
 use anyhow::Result;
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::{Html, IntoResponse, Json, Redirect, Response},
+};
 use chrono::{DateTime, Utc};
 use reqwest::Client;
-use scraper::{Html, Selector};
+use scraper::{Html as ScraperHtml, Selector};
+use std::sync::Arc;
+
+use crate::{
+    format_html::{extract_extension, format_releases_html},
+    AppState, RepoPath,
+};
 
 pub async fn fetch_releases(client: &Client, host: &str, repo_path: &str) -> Result<Vec<Release>> {
     // cgit repos have paths like: /pub/scm/linux/kernel/git/stable/linux.git
@@ -20,7 +31,7 @@ pub async fn fetch_releases(client: &Client, host: &str, repo_path: &str) -> Res
     }
 
     let html = response.text().await?;
-    let document = Html::parse_document(&html);
+    let document = ScraperHtml::parse_document(&html);
 
     let mut releases = Vec::new();
 
@@ -91,5 +102,94 @@ pub async fn fetch_releases(client: &Client, host: &str, repo_path: &str) -> Res
         }
     }
 
+    Ok(releases)
+}
+
+pub async fn handler(
+    Path(cgit_path): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Response, (StatusCode, String)> {
+    // Check if requesting latest asset redirect
+    if let Some(pos) = cgit_path.rfind("/latest.") {
+        let extension = &cgit_path[pos + 8..];
+        let repo_part = &cgit_path[..pos];
+        let parts: Vec<&str> = repo_part.splitn(2, '/').collect();
+        if parts.len() != 2 {
+            return Err((StatusCode::BAD_REQUEST, "Invalid path format".to_string()));
+        }
+        let repo = RepoPath {
+            host: parts[0].to_string(),
+            owner: String::new(),
+            repo: parts[1].to_string(),
+        };
+        let releases = get_or_fetch(&state, &repo).await?;
+
+        if let Some(latest) = releases.first() {
+            for asset in &latest.assets {
+                let asset_ext = extract_extension(&asset.name);
+                if asset_ext == extension {
+                    return Ok(Redirect::temporary(&asset.url).into_response());
+                }
+            }
+        }
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("No asset with extension '{}' found", extension),
+        ));
+    }
+
+    // Check if requesting raw cache
+    let (path_str, want_cache) = if cgit_path.ends_with("/cache") {
+        (cgit_path.trim_end_matches("/cache").to_string(), true)
+    } else {
+        (cgit_path.clone(), false)
+    };
+
+    // Parse: host/repo_path
+    let parts: Vec<&str> = path_str.splitn(2, '/').collect();
+    if parts.len() != 2 {
+        return Err((StatusCode::BAD_REQUEST, "Invalid path format".to_string()));
+    }
+    let repo = RepoPath {
+        host: parts[0].to_string(),
+        owner: String::new(),
+        repo: parts[1].to_string(),
+    };
+
+    let cached_at = state
+        .cache
+        .read_cache(&repo)
+        .ok()
+        .flatten()
+        .map(|c| c.cached_at);
+    let releases = get_or_fetch(&state, &repo).await?;
+
+    if want_cache {
+        let cached = super::CachedReleases {
+            releases,
+            cached_at: cached_at.unwrap_or_else(Utc::now),
+            repo_path: repo.cache_key(),
+        };
+        return Ok(Json(cached).into_response());
+    }
+
+    let html = format_releases_html(&releases, &repo.cache_key(), "cgit", cached_at);
+    Ok(Html(html).into_response())
+}
+
+async fn get_or_fetch(
+    state: &Arc<AppState>,
+    repo: &RepoPath,
+) -> Result<Vec<Release>, (StatusCode, String)> {
+    // Check cache first
+    if let Ok(Some(cached)) = state.cache.read_cache(repo) {
+        return Ok(cached.releases);
+    }
+
+    let releases = fetch_releases(&state.client, &repo.host, &repo.repo)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let _ = state.cache.write_cache(repo, releases.clone());
     Ok(releases)
 }
