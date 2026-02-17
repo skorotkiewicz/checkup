@@ -8,7 +8,7 @@ use axum::{
 };
 use chrono::{DateTime, Duration, Utc};
 use clap::Parser;
-use rayon::prelude::*;
+
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc, time::SystemTime};
@@ -1088,108 +1088,6 @@ async fn health_check() -> impl IntoResponse {
     (StatusCode::OK, "OK")
 }
 
-fn warm_cache_parallel(
-    cache_manager: &CacheManager,
-    fetcher: &ReleaseFetcher,
-    cache_dir: &PathBuf,
-) -> Result<()> {
-    println!("Warming cache for existing repositories...");
-
-    let repo_cache_dir = cache_dir.join("repo");
-    if !repo_cache_dir.exists() {
-        println!("No cached repositories found.");
-        return Ok(());
-    }
-
-    let mut repos_to_warm = Vec::new();
-
-    // Collect all repos that need warming
-    for host_entry in fs::read_dir(&repo_cache_dir)? {
-        let host_entry = host_entry?;
-        if !host_entry.file_type()?.is_dir() {
-            continue;
-        }
-        let host = host_entry.file_name().to_string_lossy().to_string();
-
-        for owner_entry in fs::read_dir(host_entry.path())? {
-            let owner_entry = owner_entry?;
-            if !owner_entry.file_type()?.is_dir() {
-                continue;
-            }
-            let owner = owner_entry.file_name().to_string_lossy().to_string();
-
-            for repo_entry in fs::read_dir(owner_entry.path())? {
-                let repo_entry = repo_entry?;
-                if !repo_entry.file_type()?.is_dir() {
-                    continue;
-                }
-                let repo = repo_entry.file_name().to_string_lossy().to_string();
-
-                let repo_path = RepoPath {
-                    host: host.clone(),
-                    owner: owner.clone(),
-                    repo,
-                };
-
-                // Check if cache is expired
-                if cache_manager.read_cache(&repo_path)?.is_none() {
-                    repos_to_warm.push(repo_path);
-                }
-            }
-        }
-    }
-
-    if repos_to_warm.is_empty() {
-        println!("All caches are up to date.");
-        return Ok(());
-    }
-
-    println!("Found {} repositories to warm.", repos_to_warm.len());
-
-    // Use rayon for parallel processing
-    let fetcher = fetcher;
-    let cache_manager = cache_manager;
-
-    // Create a runtime for async operations
-    let rt = tokio::runtime::Runtime::new()?;
-
-    let results: Vec<_> = repos_to_warm
-        .par_iter()
-        .map(|repo| {
-            println!(
-                "Warming cache for: {}/{}/{}",
-                repo.host, repo.owner, repo.repo
-            );
-
-            rt.block_on(async {
-                match fetcher.fetch_releases(repo).await {
-                    Ok(releases) => {
-                        if let Err(e) = cache_manager.write_cache(repo, releases) {
-                            Err(format!("Failed to write cache: {}", e))
-                        } else {
-                            Ok(repo.cache_key())
-                        }
-                    }
-                    Err(e) => Err(format!("Failed to fetch: {}", e)),
-                }
-            })
-        })
-        .collect();
-
-    let successful: Vec<_> = results.iter().filter_map(|r| r.as_ref().ok()).collect();
-    let failed: Vec<_> = results.iter().filter_map(|r| r.as_ref().err()).collect();
-
-    println!("Cache warming complete:");
-    println!("  Successful: {}", successful.len());
-    println!("  Failed: {}", failed.len());
-
-    for error in failed {
-        println!("  Error: {}", error);
-    }
-
-    Ok(())
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -1198,14 +1096,6 @@ async fn main() -> Result<()> {
     fs::create_dir_all(&args.cache)?;
 
     let state = Arc::new(AppState::new(args.cache.clone(), args.cache_hours));
-
-    // Warm cache on startup using parallel processing
-    let cache_manager = CacheManager::new(args.cache.clone(), args.cache_hours);
-    let fetcher = ReleaseFetcher::new();
-
-    if let Err(e) = warm_cache_parallel(&cache_manager, &fetcher, &args.cache) {
-        eprintln!("Cache warming failed: {}", e);
-    }
 
     let app = Router::new()
         .route("/repo/*repo_path", get(get_repo_releases))

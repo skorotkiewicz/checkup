@@ -254,7 +254,7 @@ data/cache/
 On startup, the server:
 1. Scans existing cache directories
 2. Identifies expired caches
-3. Refreshes them in parallel using all available CPU cores
+3. Refreshes them concurrently using async operations
 
 ---
 

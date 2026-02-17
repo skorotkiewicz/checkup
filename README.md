@@ -52,7 +52,7 @@ curl http://localhost:3000/repo/github.com/owner/repo/cache
 - **Smart caching**: Configurable expiration
 - **Latest downloads**: Consistent URLs for latest releases
 - **JSON API**: Programmatic access to cached data
-- **Parallel processing**: Multi-core cache warming
+- **Concurrent processing**: Async cache warming
 
 ## Documentation
 
