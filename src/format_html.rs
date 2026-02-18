@@ -322,7 +322,7 @@ pub fn format_releases_html(
     )
 }
 
-pub fn format_processing_html(repo_path: &str, route_prefix: &str) -> String {
+pub fn format_processing_html(repo_path: &str, _route_prefix: &str) -> String {
     format!(
         r#"<!DOCTYPE html>
 <html>
@@ -363,15 +363,15 @@ pub fn format_processing_html(repo_path: &str, route_prefix: &str) -> String {
         <h1>Repository Processing</h1>
         <p>The repository <code>{}</code> is being fetched for the first time.</p>
         <p>Please wait a few seconds... This page will auto-refresh.</p>
-        <a href="/{}/{}" class="refresh-btn">Refresh Now</a>
+       <a onClick="window.location.reload();" class="refresh-btn">Refresh Now</a>
     </div>
 </body>
 </html>"#,
-        repo_path, repo_path, route_prefix, repo_path
+        repo_path, repo_path
     )
 }
 
-pub fn format_error_html(repo_path: &str, error_message: &str, route_prefix: &str) -> String {
+pub fn format_error_html(repo_path: &str, error_message: &str, _route_prefix: &str) -> String {
     format!(
         r#"<!DOCTYPE html>
 <html>
@@ -395,17 +395,6 @@ pub fn format_error_html(repo_path: &str, error_message: &str, route_prefix: &st
             font-family: monospace;
             font-size: 0.9em;
         }}
-        .retry-btn {{
-            display: inline-block;
-            margin-top: 20px;
-            padding: 12px 24px;
-            background: #0366d6;
-            color: white;
-            border-radius: 6px;
-            text-decoration: none;
-            font-weight: 500;
-        }}
-        .retry-btn:hover {{ background: #0257b3; }}
         code {{ background: #f6f8fa; padding: 2px 6px; border-radius: 4px; }}
     </style>
 </head>
@@ -416,10 +405,9 @@ pub fn format_error_html(repo_path: &str, error_message: &str, route_prefix: &st
         <p>The repository <code>{}</code> could not be fetched.</p>
         <div class="error-box">{}</div>
         <p>Check if the repository exists and is accessible.</p>
-        <!-- <a href="/{}/{}" class="retry-btn">Try Again</a> -->
     </div>
 </body>
 </html>"#,
-        repo_path, repo_path, error_message, route_prefix, repo_path
+        repo_path, repo_path, error_message
     )
 }

@@ -149,8 +149,8 @@ pub async fn handler(
         }
     }
 
-    let (path_str, want_json) = if forgejo_path.ends_with("/.json") {
-        (forgejo_path.trim_end_matches("/.json").to_string(), true)
+    let (path_str, want_json) = if forgejo_path.ends_with("/+json") {
+        (forgejo_path.trim_end_matches("/+json").to_string(), true)
     } else {
         (forgejo_path.clone(), false)
     };

@@ -136,8 +136,8 @@ pub async fn handler(
         }
     }
 
-    let (path_str, want_json) = if cgit_path.ends_with("/.json") {
-        (cgit_path.trim_end_matches("/.json").to_string(), true)
+    let (path_str, want_json) = if cgit_path.ends_with("/+json") {
+        (cgit_path.trim_end_matches("/+json").to_string(), true)
     } else {
         (cgit_path.clone(), false)
     };

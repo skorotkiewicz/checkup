@@ -114,7 +114,7 @@ Same as GitHub endpoint - HTML page with releases.
 
 ---
 
-### GET /github/{owner}/{repo}/.json
+### GET /github/{owner}/{repo}/+json
 
 Get cached releases as JSON. If cache doesn't exist or is expired, fetches fresh data from the API.
 
@@ -242,26 +242,6 @@ curl http://localhost:3000/health
 - Configurable via `--cache-hours` flag
 - Expired cache is automatically refreshed on next request
 
-### Cache Location
-
-```
-data/cache/
-└── repo/
-    ├── github.com/
-    │   └── {owner}/
-    │       └── {repo}/
-    │           └── cache-{timestamp}.json
-    ├── gitlab.com/
-    │   └── {owner}/
-    │       └── {repo}/
-    │           └── cache-{timestamp}.json
-    └── {forgejo-host}/
-        └── {owner}/
-            └── {repo}/
-                └── cache-{timestamp}.json
-```
-
----
 
 ## Rate Limits
 
