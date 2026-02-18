@@ -61,7 +61,7 @@ curl http://localhost:3000/cgit/git.kernel.org/pub/scm/linux/kernel/git/stable/l
 curl -L http://localhost:3000/github/owner/repo/latest.tar.gz
 
 # Get cached JSON
-curl http://localhost:3000/github/owner/repo/.json
+curl http://localhost:3000/github/owner/repo/+json
 ```
 
 ## Features

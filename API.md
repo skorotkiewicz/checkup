@@ -36,6 +36,13 @@ Returns an HTML page with:
 - Asset sizes and download counts
 - Release notes (collapsible)
 
+**First-Time Request**
+
+If the repository is not cached:
+- Returns a "Processing" page with auto-refresh (5 seconds)
+- Fetches data in the background
+- Next refresh shows the cached HTML page
+
 **Error Responses**
 
 | Status | Description |
@@ -116,12 +123,12 @@ Same as GitHub endpoint - HTML page with releases.
 
 ### GET /github/{owner}/{repo}/+json
 
-Get cached releases as JSON. If cache doesn't exist or is expired, fetches fresh data from the API.
+Get cached releases as JSON. If cache doesn't exist or is expired, returns 404.
 
 **Example Request**
 
 ```bash
-curl http://localhost:3000/github/rust-lang/rust/cache
+curl http://localhost:3000/github/rust-lang/rust/+json
 ```
 
 **Response**
@@ -242,6 +249,51 @@ curl http://localhost:3000/health
 - Configurable via `--cache-hours` flag
 - Expired cache is automatically refreshed on next request
 
+### Cache Location
+
+```
+data/cache/
+└── repo/
+    ├── github.com/
+    │   └── {owner}/
+    │       └── {repo}/
+    │           ├── .current      # RFC3339 timestamp of last fetch
+    │           ├── cache.json    # Cached releases data (JSON)
+    │           └── index.html    # Rendered HTML page
+    ├── gitlab.com/
+    │   └── {owner}/
+    │       └── {repo}/
+    │           ├── .current
+    │           ├── cache.json
+    │           └── index.html
+    └── {forgejo-host}/
+        └── {owner}/
+            └── {repo}/
+                ├── .current
+                ├── cache.json
+                └── index.html
+```
+
+### Cache Files
+
+| File | Description |
+|------|-------------|
+| `.current` | RFC3339 timestamp of when the cache was last updated |
+| `cache.json` | Full JSON data including releases, cached_at, and repo_path |
+| `index.html` | Pre-rendered HTML page served to users |
+
+### Non-Blocking Fetch
+
+When a repository is requested for the first time:
+
+1. Returns immediately with a "Processing" page (auto-refreshes every 5 seconds)
+2. Spawns a background task to fetch data from the API
+3. On success: writes `.current`, `cache.json`, and `index.html` files
+4. On failure: shows an error page with the error message
+
+Subsequent requests serve the cached files directly until expiration.
+
+---
 
 ## Rate Limits
 
@@ -260,15 +312,23 @@ curl http://localhost:3000/health
 
 ## Error Handling
 
-All errors return a plain text response with an appropriate HTTP status code.
+Errors can be returned as plain text or as an HTML error page.
 
 **Common Error Responses**
 
 | Status | Description |
 |--------|-------------|
 | `400 Bad Request` | Invalid URL format or parameters |
-| `404 Not Found` | Repository or asset not found |
-| `500 Internal Server Error` | API request failed or server error |
+| `404 Not Found` | Repository or asset not found, or no cached data available |
+| `500 Internal Server Error` | Server error |
+
+**Fetch Errors**
+
+When a repository fetch fails (e.g., repository doesn't exist, API down):
+
+- An HTML error page is displayed with the error message
+- User can click "Try Again" to retry the fetch
+- Error is stored in memory until successful fetch or server restart
 
 ---
 
@@ -285,8 +345,19 @@ curl -L -o app.tar.gz http://localhost:3000/github/owner/repo/latest.tar.gz
 ### Get Release Info as JSON
 
 ```bash
-# Get all releases as JSON
-curl http://localhost:3000/github/owner/repo/.json | jq '.releases[0]'
+# Get all releases as JSON (must be cached first)
+curl http://localhost:3000/github/owner/repo/+json | jq '.releases[0]'
+```
+
+### First-Time Request Flow
+
+```bash
+# First request - shows "Processing" page
+curl http://localhost:3000/github/owner/new-repo
+
+# Wait a few seconds, then:
+curl http://localhost:3000/github/owner/new-repo          # Returns HTML page
+curl http://localhost:3000/github/owner/new-repo/+json    # Returns JSON data
 ```
 
 ### Use in CI/CD
