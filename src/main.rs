@@ -15,6 +15,8 @@ mod format_html;
 mod icons;
 mod provider;
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Parser, Debug)]
 #[command(name = "checkup")]
 #[command(about = "HTTP server for caching and serving repository releases", version, long_about = None)]
@@ -83,7 +85,7 @@ async fn main() -> Result<()> {
 
     let state = Arc::new(AppState {
         client: reqwest::Client::builder()
-            .user_agent("checkup/0.1.0")
+            .user_agent(format!("checkup/{}", VERSION))
             .build()?,
         cache: cache::CacheManager::new(args.cache.clone(), args.cache_hours),
         pending_repos: Arc::new(DashSet::new()),
@@ -96,7 +98,10 @@ async fn main() -> Result<()> {
         .route("/forgejo/*forgejo_path", get(provider::forgejo::handler))
         .route("/cgit/*cgit_path", get(provider::cgit::handler))
         .route("/health", get(health_check))
-        .route("/", get(|| async { Html(include_str!("index.html")) }))
+        .route(
+            "/",
+            get(|| async { Html(include_str!("index.html").replace("{VERSION}", VERSION)) }),
+        )
         .with_state(state);
 
     let addr = format!("{}:{}", args.host, args.port);
